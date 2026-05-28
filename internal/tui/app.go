@@ -146,6 +146,12 @@ type Model struct {
 	AppConfig *config.Config
 	Version   string
 
+	// Mouse double-click tracking
+	lastClickID     string    // ID of last clicked item for double-click detection
+	lastClickTime   time.Time // Time of last click
+	lastClickSource string    // "column" or "search"
+	lastClickCursor int       // Cursor position of the last click (fallback for item ID)
+
 	pendingPlayback    *domain.MediaItem
 	pendingPlaylist    []domain.MediaItem
 	PendingSelectionID string // ID of item to select after load completes
@@ -204,6 +210,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		return m.handleKeyMsg(msg)
+
+	case tea.MouseMsg:
+		return m.handleMouseMsg(msg)
 
 	case TickMsg:
 		m.SpinnerFrame++
@@ -859,6 +868,152 @@ func (m Model) findLibrary(id string) *domain.Library {
 		}
 	}
 	return nil
+}
+
+// handleMouseMsg handles mouse input with priority routing to modals, then to focused column.
+func (m Model) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+
+	// 1. GlobalSearch visible?
+	if m.GlobalSearch.IsVisible() {
+		m.GlobalSearch, _, _ = m.GlobalSearch.HandleMouse(msg, m.Width, m.Height)
+		// Detect double-click on search results
+		if result := m.GlobalSearch.Selected(); result != nil {
+			itemID := fmt.Sprintf("%d-%s", result.Type, result.Title)
+			if itemID == m.lastClickID && m.lastClickSource == "search" && time.Since(m.lastClickTime) < 400*time.Millisecond {
+				// Double-click: navigate to the result
+				m.lastClickID = ""
+				m.lastClickSource = ""
+				m.GlobalSearch.Hide()
+				if navCmd := m.navigateToSearchResult(*result); navCmd != nil {
+					cmds = append(cmds, navCmd)
+				}
+			} else {
+				// Single click: just track it for double-click detection
+				m.lastClickID = itemID
+				m.lastClickTime = time.Now()
+				m.lastClickSource = "search"
+			}
+		}
+		// Always consume the event when search is visible
+		return m, tea.Batch(cmds...)
+	}
+
+	// 2. SortModal visible?
+	if m.SortModal.IsVisible() {
+		var sel *components.SortSelection
+		m.SortModal, _, sel = m.SortModal.HandleMouse(msg, m.Width, m.Height)
+		if sel != nil {
+			if top := m.ColumnStack.Top(); top != nil {
+				top.ApplySort(sel.Field, sel.Direction)
+				m.updateInspector()
+			}
+		}
+		return m, nil
+	}
+
+	// 3. PlaylistModal visible?
+	if m.PlaylistModal.IsVisible() {
+		var handled, dismissed bool
+		newModal, handled, dismissed := m.PlaylistModal.HandleMouse(msg, m.Width, m.Height)
+		m.PlaylistModal = *newModal
+		if dismissed {
+			m.PlaylistModal.Hide()
+		}
+		if handled {
+			return m, nil
+		}
+		return m, nil
+	}
+
+	// 4. InputModal visible?
+	if m.InputModal.IsVisible() {
+		var handled, dismissed bool
+		m.InputModal, handled, dismissed = m.InputModal.HandleMouse(msg, m.Width, m.Height)
+		if dismissed {
+			m.InputModal.Hide()
+		}
+		if handled {
+			return m, nil
+		}
+		return m, nil
+	}
+
+	// 5. Route to focused ListColumn
+	top := m.ColumnStack.Top()
+	if top == nil {
+		return m, nil
+	}
+
+	// Compute the screen X position of the focused column
+	colScreenX := 0
+	for i := 0; i < m.ColumnStack.Len()-1; i++ {
+		if col := m.ColumnStack.Get(i); col != nil {
+			colScreenX += col.Width()
+		}
+	}
+
+	// Scroll wheel: scroll the focused column if cursor is within content area (not footer)
+	if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
+		if msg.Y < m.Height-ChromeHeight {
+			newCol, changed := top.HandleMouse(msg, msg.Y-1)
+			if changed {
+				m.ColumnStack.UpdateTop(newCol)
+				m.updateInspector()
+			}
+		}
+		return m, nil
+	}
+
+	// Left click: check if inside the focused column's bounds
+	if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+		if msg.X >= colScreenX && msg.X < colScreenX+top.Width() &&
+			msg.Y >= 0 && msg.Y < top.Height() {
+			relY := msg.Y - 1 // subtract top border
+			if relY < 0 {
+				relY = 0
+			}
+			newCol, changed := top.HandleMouse(msg, relY)
+			if changed {
+				m.ColumnStack.UpdateTop(newCol)
+				m.updateInspector()
+			}
+			// Double-click detection for column items — checks both item ID and cursor position.
+			// Cursor position is the fallback when item ID is unavailable (e.g., library column edge cases).
+			itemID := m.getSelectedItemID(top)
+			cursor := top.SelectedIndex()
+			idMatch := itemID != "" && itemID == m.lastClickID
+			cursorMatch := m.lastClickSource == "column" && m.lastClickCursor == cursor
+			if (idMatch || cursorMatch) && time.Since(m.lastClickTime) < 400*time.Millisecond {
+				// Double-click: drill in / play
+				m.lastClickID = ""
+				m.lastClickSource = ""
+				m.lastClickCursor = 0
+				return m.handleEnter()
+			}
+			// Single click: track for double-click detection
+			m.lastClickID = itemID
+			m.lastClickCursor = cursor
+			m.lastClickTime = time.Now()
+			m.lastClickSource = "column"
+		} else {
+			// Click is outside focused column — check if it's in a parent column (navigate back)
+			if m.ColumnStack.Len() > 1 {
+				parentX := 0
+				for i := 0; i < m.ColumnStack.Len()-1; i++ {
+					col := m.ColumnStack.Get(i)
+					if col != nil && msg.X >= parentX && msg.X < parentX+col.Width() &&
+						msg.Y >= 0 && msg.Y < col.Height() {
+						return m.handleBack()
+					}
+					parentX += col.Width()
+				}
+			}
+		}
+		return m, nil
+	}
+
+	return m, nil
 }
 
 // updateInspector updates the inspector with the selected item from middle column
