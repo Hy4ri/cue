@@ -38,7 +38,7 @@ func NewClient(baseURL, token string, logger *slog.Logger) *Client {
 		logger = slog.Default()
 	}
 	return &Client{
-		baseURL: baseURL,
+		baseURL: strings.TrimRight(baseURL, "/"),
 		token:   token,
 		httpClient: &http.Client{
 			Timeout: defaultTimeout,

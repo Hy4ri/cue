@@ -1,0 +1,447 @@
+{
+  "/home/m57/Projects/github/cue/main_test.go": {
+    "mtime": 1778844317.3953245,
+    "ast_hash": "a4b145e69286e13432f4e909c0cc31fa",
+    "semantic_hash": "a4b145e69286e13432f4e909c0cc31fa"
+  },
+  "/home/m57/Projects/github/cue/main.go": {
+    "mtime": 1779107991.2668734,
+    "ast_hash": "7c0f4fb76bbf066b01ab916924adb9c2",
+    "semantic_hash": "7c0f4fb76bbf066b01ab916924adb9c2"
+  },
+  "/home/m57/Projects/github/cue/internal/tui/keyboard_test.go": {
+    "mtime": 1778844317.3943243,
+    "ast_hash": "36ed39306f2fa783969488701ca608dd",
+    "semantic_hash": "36ed39306f2fa783969488701ca608dd"
+  },
+  "/home/m57/Projects/github/cue/internal/tui/layout.go": {
+    "mtime": 1778844317.3943243,
+    "ast_hash": "122f96cc2930abbf1c019a5f5e26bb5b",
+    "semantic_hash": "122f96cc2930abbf1c019a5f5e26bb5b"
+  },
+  "/home/m57/Projects/github/cue/internal/tui/messages.go": {
+    "mtime": 1778844317.3943243,
+    "ast_hash": "d3253e7bca9534f42553406b0fae1d20",
+    "semantic_hash": "d3253e7bca9534f42553406b0fae1d20"
+  },
+  "/home/m57/Projects/github/cue/internal/tui/app.go": {
+    "mtime": 1779107991.2638733,
+    "ast_hash": "454fcdf42a8552a97b13392a6896c348",
+    "semantic_hash": "454fcdf42a8552a97b13392a6896c348"
+  },
+  "/home/m57/Projects/github/cue/internal/tui/column_stack.go": {
+    "mtime": 1778844317.3939826,
+    "ast_hash": "139df9d83db45c4602aa6827ac9f1bbd",
+    "semantic_hash": "139df9d83db45c4602aa6827ac9f1bbd"
+  },
+  "/home/m57/Projects/github/cue/internal/tui/keys.go": {
+    "mtime": 1779107991.2658732,
+    "ast_hash": "7f73883e309cfca69e85661cedccc40c",
+    "semantic_hash": "7f73883e309cfca69e85661cedccc40c"
+  },
+  "/home/m57/Projects/github/cue/internal/tui/column_stack_test.go": {
+    "mtime": 1778844317.3939826,
+    "ast_hash": "d2d6f5384a04e512c05db450dd0810e5",
+    "semantic_hash": "d2d6f5384a04e512c05db450dd0810e5"
+  },
+  "/home/m57/Projects/github/cue/internal/tui/app_test.go": {
+    "mtime": 1778844317.3939826,
+    "ast_hash": "253409f81e55cdc575257b5d9cda4536",
+    "semantic_hash": "253409f81e55cdc575257b5d9cda4536"
+  },
+  "/home/m57/Projects/github/cue/internal/tui/commands.go": {
+    "mtime": 1778844317.3939826,
+    "ast_hash": "9e66735249471350046be6bcb44eae75",
+    "semantic_hash": "9e66735249471350046be6bcb44eae75"
+  },
+  "/home/m57/Projects/github/cue/internal/tui/views.go": {
+    "mtime": 1779107991.2658732,
+    "ast_hash": "2631244db60e415539326a9b0ab61aa3",
+    "semantic_hash": "2631244db60e415539326a9b0ab61aa3"
+  },
+  "/home/m57/Projects/github/cue/internal/tui/virtual.go": {
+    "mtime": 1778844317.3953245,
+    "ast_hash": "14fcf1dc64b806087ca37a4ea065c799",
+    "semantic_hash": "14fcf1dc64b806087ca37a4ea065c799"
+  },
+  "/home/m57/Projects/github/cue/internal/tui/keyboard.go": {
+    "mtime": 1779107991.2658732,
+    "ast_hash": "3a146b0ffa01e6b6fb2a27ac3b5d4159",
+    "semantic_hash": "3a146b0ffa01e6b6fb2a27ac3b5d4159"
+  },
+  "/home/m57/Projects/github/cue/internal/tui/navigation.go": {
+    "mtime": 1778844317.3943243,
+    "ast_hash": "189cd0cb290ef650a626bc495eb47efc",
+    "semantic_hash": "189cd0cb290ef650a626bc495eb47efc"
+  },
+  "/home/m57/Projects/github/cue/internal/tui/virtual_test.go": {
+    "mtime": 1778844317.3953245,
+    "ast_hash": "3a1a5cbc7cee95613c9285f13db1c5a6",
+    "semantic_hash": "3a1a5cbc7cee95613c9285f13db1c5a6"
+  },
+  "/home/m57/Projects/github/cue/internal/tui/styles/styles.go": {
+    "mtime": 1779107991.2658732,
+    "ast_hash": "d67a0e37a8a675eb7b191c5d6775b624",
+    "semantic_hash": "d67a0e37a8a675eb7b191c5d6775b624"
+  },
+  "/home/m57/Projects/github/cue/internal/tui/components/playlist_modal.go": {
+    "mtime": 1778844317.3943243,
+    "ast_hash": "1e21c6a3f15609c2391867812d5a700c",
+    "semantic_hash": "1e21c6a3f15609c2391867812d5a700c"
+  },
+  "/home/m57/Projects/github/cue/internal/tui/components/season_group.go": {
+    "mtime": 1778844317.3943243,
+    "ast_hash": "b611fdf369e54bd6fc2b38149d4482ff",
+    "semantic_hash": "b611fdf369e54bd6fc2b38149d4482ff"
+  },
+  "/home/m57/Projects/github/cue/internal/tui/components/inspector_test.go": {
+    "mtime": 1778844317.3943243,
+    "ast_hash": "84f713da2c4a0b405a64b5a9ee4433c3",
+    "semantic_hash": "84f713da2c4a0b405a64b5a9ee4433c3"
+  },
+  "/home/m57/Projects/github/cue/internal/tui/components/column.go": {
+    "mtime": 1778844317.3939826,
+    "ast_hash": "fce167a737ebeebc2026b29e1723d3bf",
+    "semantic_hash": "fce167a737ebeebc2026b29e1723d3bf"
+  },
+  "/home/m57/Projects/github/cue/internal/tui/components/sync_state.go": {
+    "mtime": 1778844317.3943243,
+    "ast_hash": "b730534fb41d8f1e78f1fb321feb4aca",
+    "semantic_hash": "b730534fb41d8f1e78f1fb321feb4aca"
+  },
+  "/home/m57/Projects/github/cue/internal/tui/components/global_search.go": {
+    "mtime": 1778844317.3942165,
+    "ast_hash": "f95921100b5af10b19e0c4487562a5cb",
+    "semantic_hash": "f95921100b5af10b19e0c4487562a5cb"
+  },
+  "/home/m57/Projects/github/cue/internal/tui/components/keys.go": {
+    "mtime": 1778844317.3943243,
+    "ast_hash": "266ce008bd04e3337a36c2dd7d5a3ead",
+    "semantic_hash": "266ce008bd04e3337a36c2dd7d5a3ead"
+  },
+  "/home/m57/Projects/github/cue/internal/tui/components/list_item.go": {
+    "mtime": 1778844317.3943243,
+    "ast_hash": "5713d06732d4a406bef678515933df78",
+    "semantic_hash": "5713d06732d4a406bef678515933df78"
+  },
+  "/home/m57/Projects/github/cue/internal/tui/components/list_column_test.go": {
+    "mtime": 1778844317.3943243,
+    "ast_hash": "9b7264bcd36099c54a9b0bc3462f174b",
+    "semantic_hash": "9b7264bcd36099c54a9b0bc3462f174b"
+  },
+  "/home/m57/Projects/github/cue/internal/tui/components/sort_modal.go": {
+    "mtime": 1778844317.3943243,
+    "ast_hash": "c519a899c5fa406916f6402ee057b2bf",
+    "semantic_hash": "c519a899c5fa406916f6402ee057b2bf"
+  },
+  "/home/m57/Projects/github/cue/internal/tui/components/input_modal_test.go": {
+    "mtime": 1778844317.3942165,
+    "ast_hash": "42192bf1275772b29ff60c24e118f155",
+    "semantic_hash": "42192bf1275772b29ff60c24e118f155"
+  },
+  "/home/m57/Projects/github/cue/internal/tui/components/list_column.go": {
+    "mtime": 1779107991.2658732,
+    "ast_hash": "f5e0bef1245d2e40b399f41041ab5a54",
+    "semantic_hash": "f5e0bef1245d2e40b399f41041ab5a54"
+  },
+  "/home/m57/Projects/github/cue/internal/tui/components/inspector.go": {
+    "mtime": 1779107991.2638733,
+    "ast_hash": "3eb17ac42b6410fa9657bf15e079e088",
+    "semantic_hash": "3eb17ac42b6410fa9657bf15e079e088"
+  },
+  "/home/m57/Projects/github/cue/internal/tui/components/global_search_test.go": {
+    "mtime": 1778844317.3942165,
+    "ast_hash": "4314ddf095c285d3b73afe19ed3fdff1",
+    "semantic_hash": "4314ddf095c285d3b73afe19ed3fdff1"
+  },
+  "/home/m57/Projects/github/cue/internal/tui/components/input_modal.go": {
+    "mtime": 1778844317.3942165,
+    "ast_hash": "d016ec3b01db5f8e96c6d75e7975b081",
+    "semantic_hash": "d016ec3b01db5f8e96c6d75e7975b081"
+  },
+  "/home/m57/Projects/github/cue/internal/player/launcher.go": {
+    "mtime": 1779107991.2628732,
+    "ast_hash": "46768a1fecbe3f53ad2e81e5b2655630",
+    "semantic_hash": "46768a1fecbe3f53ad2e81e5b2655630"
+  },
+  "/home/m57/Projects/github/cue/internal/player/scrobbler_test.go": {
+    "mtime": 1778844317.3930602,
+    "ast_hash": "1aec2acf87ca7a8503f25a34185d75a2",
+    "semantic_hash": "1aec2acf87ca7a8503f25a34185d75a2"
+  },
+  "/home/m57/Projects/github/cue/internal/player/mpvipc_unix.go": {
+    "mtime": 1778844317.3930602,
+    "ast_hash": "4057b490123fb11a0cba12b39c49e319",
+    "semantic_hash": "4057b490123fb11a0cba12b39c49e319"
+  },
+  "/home/m57/Projects/github/cue/internal/player/mpvipc_windows.go": {
+    "mtime": 1778844317.3930602,
+    "ast_hash": "97c07dc63bbb6e9a7c846d8017eaf4d8",
+    "semantic_hash": "97c07dc63bbb6e9a7c846d8017eaf4d8"
+  },
+  "/home/m57/Projects/github/cue/internal/player/scrobbler.go": {
+    "mtime": 1778844317.3930602,
+    "ast_hash": "58ad5aae90a13c957e2b54c2e0ee9e2f",
+    "semantic_hash": "58ad5aae90a13c957e2b54c2e0ee9e2f"
+  },
+  "/home/m57/Projects/github/cue/internal/player/mpvipc.go": {
+    "mtime": 1778844317.3930602,
+    "ast_hash": "3f3d920066cd8ab4ce0487e6ac77ae44",
+    "semantic_hash": "3f3d920066cd8ab4ce0487e6ac77ae44"
+  },
+  "/home/m57/Projects/github/cue/internal/player/launcher_test.go": {
+    "mtime": 1778844317.3930602,
+    "ast_hash": "34f520c1f967310f0cc3bf93e2e3249f",
+    "semantic_hash": "34f520c1f967310f0cc3bf93e2e3249f"
+  },
+  "/home/m57/Projects/github/cue/internal/config/config.go": {
+    "mtime": 1778844317.3909762,
+    "ast_hash": "2bb9c06c477f406d5a11fd15b53bd55c",
+    "semantic_hash": "2bb9c06c477f406d5a11fd15b53bd55c"
+  },
+  "/home/m57/Projects/github/cue/internal/config/profiles_test.go": {
+    "mtime": 1778844317.3910575,
+    "ast_hash": "c4ddb9fbe422a4b2799a2d6f21caa9f8",
+    "semantic_hash": "c4ddb9fbe422a4b2799a2d6f21caa9f8"
+  },
+  "/home/m57/Projects/github/cue/internal/config/profiles.go": {
+    "mtime": 1778844317.3910575,
+    "ast_hash": "7675d3474f9a3a437d62ed04444fe042",
+    "semantic_hash": "7675d3474f9a3a437d62ed04444fe042"
+  },
+  "/home/m57/Projects/github/cue/internal/log/logger.go": {
+    "mtime": 1778844317.3915606,
+    "ast_hash": "18cc9df0f2bd3141fa7042eb7c8af4ad",
+    "semantic_hash": "18cc9df0f2bd3141fa7042eb7c8af4ad"
+  },
+  "/home/m57/Projects/github/cue/internal/log/logger_test.go": {
+    "mtime": 1778844317.3917482,
+    "ast_hash": "e10bf5dfdd20c7c9409c7ace53ae850b",
+    "semantic_hash": "e10bf5dfdd20c7c9409c7ace53ae850b"
+  },
+  "/home/m57/Projects/github/cue/internal/search/local_test.go": {
+    "mtime": 1778844317.3935986,
+    "ast_hash": "28eaa299225fb9054d77829b9e71f9cd",
+    "semantic_hash": "28eaa299225fb9054d77829b9e71f9cd"
+  },
+  "/home/m57/Projects/github/cue/internal/search/search_test.go": {
+    "mtime": 1778844317.3935986,
+    "ast_hash": "b12d850bf56495ab87825ace399ec889",
+    "semantic_hash": "b12d850bf56495ab87825ace399ec889"
+  },
+  "/home/m57/Projects/github/cue/internal/search/search.go": {
+    "mtime": 1778844317.3935986,
+    "ast_hash": "6da765f299623fc27503450904b4d5cb",
+    "semantic_hash": "6da765f299623fc27503450904b4d5cb"
+  },
+  "/home/m57/Projects/github/cue/internal/search/fuzzy.go": {
+    "mtime": 1778844317.3933854,
+    "ast_hash": "180df0f72cdecc7cd19997841f558055",
+    "semantic_hash": "180df0f72cdecc7cd19997841f558055"
+  },
+  "/home/m57/Projects/github/cue/internal/library/service_test.go": {
+    "mtime": 1778844317.3915606,
+    "ast_hash": "8f758d0e21fe58c3aa504c203f986a18",
+    "semantic_hash": "8f758d0e21fe58c3aa504c203f986a18"
+  },
+  "/home/m57/Projects/github/cue/internal/library/service.go": {
+    "mtime": 1778844317.3915606,
+    "ast_hash": "9d861f9315eb6cf5c0c402a7338a8fe6",
+    "semantic_hash": "9d861f9315eb6cf5c0c402a7338a8fe6"
+  },
+  "/home/m57/Projects/github/cue/internal/library/local_views_test.go": {
+    "mtime": 1778844317.3915606,
+    "ast_hash": "2dfb868db26470709b36e9a67cc61c08",
+    "semantic_hash": "2dfb868db26470709b36e9a67cc61c08"
+  },
+  "/home/m57/Projects/github/cue/internal/library/local_views.go": {
+    "mtime": 1778844317.3913245,
+    "ast_hash": "a12cb918c222f5e988a186497092298a",
+    "semantic_hash": "a12cb918c222f5e988a186497092298a"
+  },
+  "/home/m57/Projects/github/cue/internal/playlist/service.go": {
+    "mtime": 1778844317.3933854,
+    "ast_hash": "8809c6fcbf964f9e8a3ea9c4a01670d3",
+    "semantic_hash": "8809c6fcbf964f9e8a3ea9c4a01670d3"
+  },
+  "/home/m57/Projects/github/cue/internal/playlist/queue.go": {
+    "mtime": 1778844317.3930602,
+    "ast_hash": "6da19241ea1c600e2b575731bf7b5e78",
+    "semantic_hash": "6da19241ea1c600e2b575731bf7b5e78"
+  },
+  "/home/m57/Projects/github/cue/internal/playlist/queue_test.go": {
+    "mtime": 1778844317.3933854,
+    "ast_hash": "c8418727d2970beab2eca894a2c1ae66",
+    "semantic_hash": "c8418727d2970beab2eca894a2c1ae66"
+  },
+  "/home/m57/Projects/github/cue/internal/store/store.go": {
+    "mtime": 1778844317.3935986,
+    "ast_hash": "fa815a4c7126eaec64ec4818774d6aad",
+    "semantic_hash": "fa815a4c7126eaec64ec4818774d6aad"
+  },
+  "/home/m57/Projects/github/cue/internal/store/store_test.go": {
+    "mtime": 1778844317.393785,
+    "ast_hash": "840ac2c62eb142c6545ab5b21dec484b",
+    "semantic_hash": "840ac2c62eb142c6545ab5b21dec484b"
+  },
+  "/home/m57/Projects/github/cue/internal/mediaserver/auth.go": {
+    "mtime": 1778844317.3917482,
+    "ast_hash": "ad93dd8b05052ec058aecd545154825c",
+    "semantic_hash": "ad93dd8b05052ec058aecd545154825c"
+  },
+  "/home/m57/Projects/github/cue/internal/mediaserver/client.go": {
+    "mtime": 1778844317.3918478,
+    "ast_hash": "be6f7cada732020de105ddcfc0dd839c",
+    "semantic_hash": "be6f7cada732020de105ddcfc0dd839c"
+  },
+  "/home/m57/Projects/github/cue/internal/mediaserver/detect.go": {
+    "mtime": 1778844317.3918478,
+    "ast_hash": "ba05f22fc95add2ee6feabdb98b31322",
+    "semantic_hash": "ba05f22fc95add2ee6feabdb98b31322"
+  },
+  "/home/m57/Projects/github/cue/internal/mediaserver/jellyfin/mapper_test.go": {
+    "mtime": 1778844317.392031,
+    "ast_hash": "5bbba156fece2bcc8753430076e57b19",
+    "semantic_hash": "5bbba156fece2bcc8753430076e57b19"
+  },
+  "/home/m57/Projects/github/cue/internal/mediaserver/jellyfin/auth.go": {
+    "mtime": 1778844317.3918478,
+    "ast_hash": "7ba81f88a008c5bb55fb41307662020d",
+    "semantic_hash": "7ba81f88a008c5bb55fb41307662020d"
+  },
+  "/home/m57/Projects/github/cue/internal/mediaserver/jellyfin/mapper.go": {
+    "mtime": 1778844317.392031,
+    "ast_hash": "e9f34dd78c9a399e7fcfae16d529cf7b",
+    "semantic_hash": "e9f34dd78c9a399e7fcfae16d529cf7b"
+  },
+  "/home/m57/Projects/github/cue/internal/mediaserver/jellyfin/client_test.go": {
+    "mtime": 1778844317.392031,
+    "ast_hash": "d2b1c3d1b16d1f31516e8e53f29cdffe",
+    "semantic_hash": "d2b1c3d1b16d1f31516e8e53f29cdffe"
+  },
+  "/home/m57/Projects/github/cue/internal/mediaserver/jellyfin/client.go": {
+    "mtime": 1778844317.392031,
+    "ast_hash": "566bc743af394b7786de607f1bb5c12d",
+    "semantic_hash": "566bc743af394b7786de607f1bb5c12d"
+  },
+  "/home/m57/Projects/github/cue/internal/mediaserver/jellyfin/dto.go": {
+    "mtime": 1778844317.392031,
+    "ast_hash": "1402b5c27b3c573ec5f9ef8ae4fb889f",
+    "semantic_hash": "1402b5c27b3c573ec5f9ef8ae4fb889f"
+  },
+  "/home/m57/Projects/github/cue/internal/mediaserver/plex/mapper_test.go": {
+    "mtime": 1778844317.3924232,
+    "ast_hash": "779a3f10dd3dbaf51c91996a34d5f8e7",
+    "semantic_hash": "779a3f10dd3dbaf51c91996a34d5f8e7"
+  },
+  "/home/m57/Projects/github/cue/internal/mediaserver/plex/auth.go": {
+    "mtime": 1778844317.392031,
+    "ast_hash": "1b4e5ab65b2fe4a9ea9dd781c4dc603a",
+    "semantic_hash": "1b4e5ab65b2fe4a9ea9dd781c4dc603a"
+  },
+  "/home/m57/Projects/github/cue/internal/mediaserver/plex/mapper.go": {
+    "mtime": 1778844317.3924232,
+    "ast_hash": "47296a9e6995d1cb9ca8e0dde46bf6f9",
+    "semantic_hash": "47296a9e6995d1cb9ca8e0dde46bf6f9"
+  },
+  "/home/m57/Projects/github/cue/internal/mediaserver/plex/client.go": {
+    "mtime": 1778844317.3924232,
+    "ast_hash": "ff564c153368facddddef19199f03758",
+    "semantic_hash": "ff564c153368facddddef19199f03758"
+  },
+  "/home/m57/Projects/github/cue/internal/mediaserver/plex/dto.go": {
+    "mtime": 1778844317.3924232,
+    "ast_hash": "2ac14d379d713b93590003db992a9104",
+    "semantic_hash": "2ac14d379d713b93590003db992a9104"
+  },
+  "/home/m57/Projects/github/cue/internal/domain/playback.go": {
+    "mtime": 1778844317.3911982,
+    "ast_hash": "4c7bbb2ec6bc5c1f05b3eee79276e2dd",
+    "semantic_hash": "4c7bbb2ec6bc5c1f05b3eee79276e2dd"
+  },
+  "/home/m57/Projects/github/cue/internal/domain/library.go": {
+    "mtime": 1778844317.3911982,
+    "ast_hash": "ea343c96f4121e6848d3f8bdd8e252fa",
+    "semantic_hash": "ea343c96f4121e6848d3f8bdd8e252fa"
+  },
+  "/home/m57/Projects/github/cue/internal/domain/interfaces.go": {
+    "mtime": 1778844317.3911982,
+    "ast_hash": "8b10a19cbe347b348e768bafbb40c018",
+    "semantic_hash": "8b10a19cbe347b348e768bafbb40c018"
+  },
+  "/home/m57/Projects/github/cue/internal/domain/search.go": {
+    "mtime": 1778844317.3913245,
+    "ast_hash": "81e2f66b8a41289f206b0e2f89fab53c",
+    "semantic_hash": "81e2f66b8a41289f206b0e2f89fab53c"
+  },
+  "/home/m57/Projects/github/cue/internal/domain/entities.go": {
+    "mtime": 1778844317.3910575,
+    "ast_hash": "beee0f28fd1c289eb3a86be12aa6246a",
+    "semantic_hash": "beee0f28fd1c289eb3a86be12aa6246a"
+  },
+  "/home/m57/Projects/github/cue/internal/domain/store.go": {
+    "mtime": 1778844317.3913245,
+    "ast_hash": "e6ec528ae40631c258556c27fe4a3456",
+    "semantic_hash": "e6ec528ae40631c258556c27fe4a3456"
+  },
+  "/home/m57/Projects/github/cue/internal/domain/errors.go": {
+    "mtime": 1778844317.3911982,
+    "ast_hash": "b72406038b89f7ba1ec1eb542d0a9ebd",
+    "semantic_hash": "b72406038b89f7ba1ec1eb542d0a9ebd"
+  },
+  "/home/m57/Projects/github/cue/internal/domain/playlist.go": {
+    "mtime": 1778844317.3911982,
+    "ast_hash": "3d93e9a8eec7769601cb19ef608a9159",
+    "semantic_hash": "3d93e9a8eec7769601cb19ef608a9159"
+  },
+  "/home/m57/Projects/github/cue/internal/domain/progress.go": {
+    "mtime": 1778844317.3911982,
+    "ast_hash": "6c9bd48d61d7f8c7191296ae1704b092",
+    "semantic_hash": "6c9bd48d61d7f8c7191296ae1704b092"
+  },
+  "/home/m57/Projects/github/cue/internal/domain/entities_test.go": {
+    "mtime": 1778844317.3911982,
+    "ast_hash": "3d738fd85919920a2da0629d857f58e8",
+    "semantic_hash": "3d738fd85919920a2da0629d857f58e8"
+  },
+  "/home/m57/Projects/github/cue/README.md": {
+    "mtime": 1779107991.2598732,
+    "ast_hash": "85583994857c8b7a619166a84a40a0d3",
+    "semantic_hash": "85583994857c8b7a619166a84a40a0d3"
+  },
+  "/home/m57/Projects/github/cue/.golangci.yml": {
+    "mtime": 1778844317.3899312,
+    "ast_hash": "a9e66cfd08c6325caa20a849058ff333",
+    "semantic_hash": "a9e66cfd08c6325caa20a849058ff333"
+  },
+  "/home/m57/Projects/github/cue/.goreleaser.yaml": {
+    "mtime": 1778844317.3899312,
+    "ast_hash": "11217547b6172bae22144db9b90f746e",
+    "semantic_hash": "11217547b6172bae22144db9b90f746e"
+  },
+  "/home/m57/Projects/github/cue/config.example.yaml": {
+    "mtime": 1778844317.3903244,
+    "ast_hash": "8b0c3c118d4901d728a1bf835a0697d9",
+    "semantic_hash": "8b0c3c118d4901d728a1bf835a0697d9"
+  },
+  "/home/m57/Projects/github/cue/.github/FUNDING.yml": {
+    "mtime": 1778844317.3893914,
+    "ast_hash": "de5b6ae1bcc47e1492ddcebb60826d88",
+    "semantic_hash": "de5b6ae1bcc47e1492ddcebb60826d88"
+  },
+  "/home/m57/Projects/github/cue/.github/workflows/release.yml": {
+    "mtime": 1778844317.3899312,
+    "ast_hash": "ee02dd97505263513df7a827d2189bed",
+    "semantic_hash": "ee02dd97505263513df7a827d2189bed"
+  },
+  "/home/m57/Projects/github/cue/.github/workflows/ci.yml": {
+    "mtime": 1778844317.3898804,
+    "ast_hash": "68761ca29973a19e195018f1429eb03a",
+    "semantic_hash": "68761ca29973a19e195018f1429eb03a"
+  },
+  "/home/m57/Projects/github/cue/assets/screenshot1.png": {
+    "mtime": 1779107991.2618732,
+    "ast_hash": "34d4f0279842ae7f883aea9c564192c4",
+    "semantic_hash": "34d4f0279842ae7f883aea9c564192c4"
+  }
+}
