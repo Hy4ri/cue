@@ -23,6 +23,12 @@ type MediaSource interface {
 	// Kept on MediaSource (not in a domain interface) as it's only used
 	// by specific features that need detailed item metadata.
 	GetMediaItem(ctx context.Context, itemID string) (*domain.MediaItem, error)
+
+	// DeleteMediaItem deletes the media item from the server's disk.
+	DeleteMediaItem(ctx context.Context, itemID string) error
+
+	// GetNextUp returns the next unwatched episode for a show.
+	GetNextUp(ctx context.Context, showID string) (*domain.MediaItem, error)
 }
 
 // NewClient creates a new MediaSource based on the server type.

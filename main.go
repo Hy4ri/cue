@@ -241,7 +241,7 @@ func run() error {
 	playbackSvc := player.NewService(launcher, client, logger)
 
 	// Create TUI model with Store and concrete service types
-	model := tui.NewModel(libraryStore, librarySvc, playlistSvc, searchSvc, playbackSvc, cfg, cfg.UI, Version)
+	model := tui.NewModel(libraryStore, librarySvc, playlistSvc, searchSvc, playbackSvc, client, cfg, cfg.UI, Version)
 
 	// Run the TUI
 	p := tea.NewProgram(

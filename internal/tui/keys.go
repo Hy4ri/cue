@@ -29,6 +29,7 @@ type KeyMap struct {
 	MarkWatched     key.Binding
 	MarkUnwatched   key.Binding
 	Play            key.Binding
+	DirectPlay      key.Binding
 	ToggleInspector key.Binding
 	Logout          key.Binding
 	PlaylistModal   key.Binding
@@ -135,6 +136,10 @@ func DefaultKeyMap() KeyMap {
 		Play: key.NewBinding(
 			key.WithKeys("p"),
 			key.WithHelp("p", "play"),
+		),
+		DirectPlay: key.NewBinding(
+			key.WithKeys("shift+enter"),
+			key.WithHelp("shift+enter", "direct play"),
 		),
 		ToggleInspector: key.NewBinding(
 			key.WithKeys("i"),

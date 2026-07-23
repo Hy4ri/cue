@@ -165,6 +165,11 @@ type PlaylistDeletedMsg struct {
 	Error      error
 }
 
+type MediaItemDeletedMsg struct {
+	ItemID    string
+	LibraryID string
+}
+
 // PlaylistModalDataMsg contains data for the playlist modal
 type PlaylistModalDataMsg struct {
 	Playlists  []*domain.Playlist

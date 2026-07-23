@@ -414,6 +414,62 @@ func (c *Client) GetMediaItem(ctx context.Context, itemID string) (*domain.Media
 	return &item, nil
 }
 
+// DeleteMediaItem deletes a media item from the server's disk
+func (c *Client) DeleteMediaItem(ctx context.Context, itemID string) error {
+	path := fmt.Sprintf("/library/metadata/%s", itemID)
+	_, err := c.doRequest(ctx, http.MethodDelete, path, nil)
+	if err != nil {
+		if strings.Contains(err.Error(), "status code: 400") || strings.Contains(err.Error(), "status code: 403") {
+			return fmt.Errorf("failed to delete: ensure 'Allow media deletion' is enabled in Plex, you are the server owner, and Plex has OS-level write permissions to the file")
+		}
+		return err
+	}
+	return nil
+}
+
+// GetNextUp returns the next unwatched episode for a show
+func (c *Client) GetNextUp(ctx context.Context, showID string) (*domain.MediaItem, error) {
+	body, err := c.doRequest(ctx, http.MethodGet, "/library/onDeck", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	container, err := c.parseResponse(body)
+	if err != nil {
+		return nil, err
+	}
+
+	items := MapOnDeck(container.Metadata, c.baseURL)
+	for _, item := range items {
+		// In MapOnDeck, ShowID is mapped from GrandparentRatingKey
+		if item.ShowID == showID {
+			return item, nil
+		}
+	}
+
+	// If not found on deck, just get the first season and its first episode
+	seasons, err := c.GetSeasons(ctx, showID)
+	if err == nil && len(seasons) > 0 {
+		// find first season that is not Specials (index 0 usually Specials, but let's try season 1)
+		var targetSeason *domain.Season
+		for _, s := range seasons {
+			if s.SeasonNum > 0 {
+				targetSeason = s
+				break
+			}
+		}
+		if targetSeason == nil {
+			targetSeason = seasons[0]
+		}
+		episodes, err := c.GetEpisodes(ctx, targetSeason.ID)
+		if err == nil && len(episodes) > 0 {
+			return episodes[0], nil
+		}
+	}
+
+	return nil, domain.ErrItemNotFound
+}
+
 // MarkPlayed marks an item as fully watched
 func (c *Client) MarkPlayed(ctx context.Context, itemID string) error {
 	query := url.Values{}

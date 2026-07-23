@@ -11,6 +11,7 @@ import (
 	"github.com/SuperCoolPencil/cue/internal/library"
 	"github.com/SuperCoolPencil/cue/internal/player"
 	"github.com/SuperCoolPencil/cue/internal/playlist"
+	"github.com/SuperCoolPencil/cue/internal/mediaserver"
 	"github.com/SuperCoolPencil/cue/internal/search"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -485,6 +486,36 @@ func DeletePlaylistCmd(svc *playlist.Service, playlistID string) tea.Cmd {
 			return PlaylistDeletedMsg{PlaylistID: playlistID, Error: err}
 		}
 		return PlaylistDeletedMsg{PlaylistID: playlistID}
+	}
+}
+
+// DeleteMediaItemCmd deletes a media item from the server
+func DeleteMediaItemCmd(svc mediaserver.MediaSource, itemID, libID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		err := svc.DeleteMediaItem(ctx, itemID)
+		if err != nil {
+			return ErrMsg{Err: err, Context: "deleting media item"}
+		}
+		return MediaItemDeletedMsg{ItemID: itemID, LibraryID: libID}
+	}
+}
+
+// DirectPlayShowCmd fetches the next up episode for a show and plays it
+func DirectPlayShowCmd(svc mediaserver.MediaSource, playerSvc *player.Service, showID string, autoplay bool) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		episode, err := svc.GetNextUp(ctx, showID)
+		if err != nil {
+			return ErrMsg{Err: err, Context: "finding next episode to play"}
+		}
+
+		// Return a command that plays the found episode
+		return PlayItemCmd(playerSvc, *episode, episode.ShouldResume(), autoplay)()
 	}
 }
 

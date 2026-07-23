@@ -34,6 +34,10 @@ func (m Model) View() string {
 		return m.renderResumeConfirmation()
 	}
 
+	if m.State == StateConfirmDelete {
+		return m.renderDeleteConfirmation()
+	}
+
 	contentHeight := m.Height - ChromeHeight
 	stackLen := m.ColumnStack.Len()
 	layout := m.calculateColumnLayout(m.Width)
@@ -441,7 +445,7 @@ func (m Model) renderHelp() string {
 }
 
 // renderConfirmDialog renders a centered confirmation modal with styled buttons
-func renderConfirmDialog(width, height int, title, body, yesLabel, noLabel, cancelLabel string) string {
+func renderConfirmDialog(width, height int, title, body, yesLabel, noLabel, cancelLabel string, defaultIsNo bool) string {
 	modalWidth := 54
 
 	bg := lipgloss.NewStyle().Background(styles.SlateDark)
@@ -458,20 +462,27 @@ func renderConfirmDialog(width, height int, title, body, yesLabel, noLabel, canc
 		Align(lipgloss.Center).
 		MarginTop(1)
 
-	yesBtn := lipgloss.NewStyle().
+	primaryStyle := lipgloss.NewStyle().
 		Foreground(styles.White).
 		Background(styles.PlexOrange).
 		Padding(0, 2).
-		Bold(true).
-		Render(yesLabel)
+		Bold(true)
 
-	btnGap := bg.Render("  ")
-
-	noBtn := lipgloss.NewStyle().
+	secondaryStyle := lipgloss.NewStyle().
 		Foreground(styles.LightGray).
 		Background(styles.SlateLight).
-		Padding(0, 2).
-		Render(noLabel)
+		Padding(0, 2)
+
+	var yesBtn, noBtn string
+	if defaultIsNo {
+		yesBtn = secondaryStyle.Render(yesLabel)
+		noBtn = primaryStyle.Render(noLabel)
+	} else {
+		yesBtn = primaryStyle.Render(yesLabel)
+		noBtn = secondaryStyle.Render(noLabel)
+	}
+
+	btnGap := bg.Render("  ")
 
 	buttonList := []string{yesBtn, btnGap, noBtn}
 
@@ -519,7 +530,7 @@ func (m Model) renderResumeConfirmation() string {
 
 	return renderConfirmDialog(m.Width, m.Height,
 		title, body,
-		"Y  Resume", "N  Start Over", "Esc  Cancel")
+		"Y  Resume", "N  Start Over", "Esc  Cancel", false)
 }
 
 // renderLogoutConfirmation renders the logout confirmation modal
@@ -527,5 +538,18 @@ func (m Model) renderLogoutConfirmation() string {
 	return renderConfirmDialog(m.Width, m.Height,
 		"Log Out?",
 		"This will clear your credentials,\nserver URL, and all cached data.",
-		"Y  Yes", "N  No", "")
+		"Y  Yes", "N  No", "", false)
+}
+
+// renderDeleteConfirmation renders the deletion confirmation modal
+func (m Model) renderDeleteConfirmation() string {
+	itemTitle := "this item"
+	if m.pendingDelete != nil {
+		itemTitle = styles.Truncate(m.pendingDelete.GetTitle(), 38)
+	}
+
+	return renderConfirmDialog(m.Width, m.Height,
+		"Delete Local File?",
+		fmt.Sprintf("Are you sure you want to delete\n%s\nfrom the server? This action cannot be undone.", itemTitle),
+		"Y  Yes", "N  No", "Esc  Cancel", true)
 }

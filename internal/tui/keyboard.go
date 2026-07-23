@@ -60,6 +60,27 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case StateConfirmDelete:
+		if m.pendingDelete == nil {
+			m.State = StateBrowsing
+			return m, nil
+		}
+		switch {
+		case key.Matches(msg, Keys.Confirm):
+			item := m.pendingDelete
+			m.pendingDelete = nil
+			m.State = StateBrowsing
+			m.StatusMsg = "Deleting " + item.GetTitle() + "..."
+			return m, tea.Batch(
+				DeleteMediaItemCmd(m.MediaClient, item.GetID(), item.GetLibraryID()),
+				ClearStatusCmd(3*time.Second),
+			)
+		case key.Matches(msg, Keys.Deny), key.Matches(msg, Keys.Escape):
+			m.pendingDelete = nil
+			m.State = StateBrowsing
+		}
+		return m, nil
+
 	case StateInspecting:
 		if key.Matches(msg, Keys.Back, Keys.Escape) {
 			m.State = StateBrowsing
@@ -117,6 +138,8 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleMarkUnwatched()
 	case key.Matches(msg, Keys.Play):
 		return m.handlePlay()
+	case key.Matches(msg, Keys.DirectPlay):
+		return m.handleDirectPlay()
 	case key.Matches(msg, Keys.ToggleInspector):
 		return m.handleToggleInspector()
 	case key.Matches(msg, Keys.Logout):
@@ -543,9 +566,35 @@ func (m Model) handleDelete() (tea.Model, tea.Cmd) {
 			if item := top.SelectedMediaItem(); item != nil {
 				return m, RemoveFromQueueCmd(m.PlaylistService, item.ID)
 			}
+		} else if rawItem := top.SelectedItem(); rawItem != nil {
+			// If it's a media item (Movie, Show, Episode), prompt for local file deletion
+			if item, ok := rawItem.(domain.ListItem); ok {
+				if item.GetItemType() == "movie" || item.GetItemType() == "show" || item.GetItemType() == "episode" {
+					m.pendingDelete = item
+					m.State = StateConfirmDelete
+				}
+			}
 		}
 	}
 	return m, nil
+}
+
+// handleDirectPlay handles playing the next up episode for a show
+func (m Model) handleDirectPlay() (tea.Model, tea.Cmd) {
+	top := m.ColumnStack.Top()
+	if top == nil {
+		return m, nil
+	}
+
+	rawItem := top.SelectedItem()
+	item, ok := rawItem.(domain.ListItem)
+	if !ok || item.GetItemType() != "show" {
+		m.StatusMsg = "Direct Play is only available for TV Shows"
+		return m, ClearStatusCmd(3 * time.Second)
+	}
+
+	m.StatusMsg = "Starting " + item.GetTitle() + "..."
+	return m, DirectPlayShowCmd(m.MediaClient, m.PlaybackSvc, item.GetID(), m.UIConfig.Autoplay)
 }
 
 // handleNewPlaylist shows hint about creating playlists

@@ -482,6 +482,46 @@ func (c *Client) GetMediaItem(ctx context.Context, itemID string) (*domain.Media
 	return &result, nil
 }
 
+// DeleteMediaItem deletes a media item from the server's disk
+func (c *Client) DeleteMediaItem(ctx context.Context, itemID string) error {
+	path := fmt.Sprintf("/Items/%s", itemID)
+	_, err := c.doRequest(ctx, http.MethodDelete, path, nil)
+	if err != nil {
+		if strings.Contains(err.Error(), "status code: 400") || strings.Contains(err.Error(), "status code: 401") || strings.Contains(err.Error(), "status code: 403") {
+			return fmt.Errorf("not allowed (ensure user has permission to delete media)")
+		}
+		return err
+	}
+	return nil
+}
+
+// GetNextUp returns the next unwatched episode for a show
+func (c *Client) GetNextUp(ctx context.Context, showID string) (*domain.MediaItem, error) {
+	query := url.Values{}
+	query.Set("SeriesId", showID)
+	query.Set("UserId", c.userID)
+	query.Set("Fields", "Overview,MediaSources,MediaStreams,DateCreated")
+	query.Set("Limit", "1")
+
+	path := "/Shows/NextUp"
+	body, err := c.doRequest(ctx, http.MethodGet, path, query)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp ItemsResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	if len(resp.Items) == 0 {
+		return nil, domain.ErrItemNotFound
+	}
+
+	episode := mapEpisode(resp.Items[0], c.baseURL)
+	return &episode, nil
+}
+
 // MarkPlayed marks an item as fully watched
 func (c *Client) MarkPlayed(ctx context.Context, itemID string) error {
 	path := fmt.Sprintf("/Users/%s/PlayedItems/%s", c.userID, itemID)

@@ -10,6 +10,7 @@ import (
 	"github.com/SuperCoolPencil/cue/internal/library"
 	"github.com/SuperCoolPencil/cue/internal/player"
 	"github.com/SuperCoolPencil/cue/internal/playlist"
+	"github.com/SuperCoolPencil/cue/internal/mediaserver"
 	"github.com/SuperCoolPencil/cue/internal/search"
 	"github.com/SuperCoolPencil/cue/internal/tui/components"
 	tea "github.com/charmbracelet/bubbletea"
@@ -24,6 +25,7 @@ const (
 	StateConfirmLogout
 	StateConfirmResume
 	StateInspecting
+	StateConfirmDelete
 )
 
 // Layout proportions for Miller Columns
@@ -103,6 +105,8 @@ type Model struct {
 	SearchSvc   *search.Service
 	PlaybackSvc *player.Service
 
+	MediaClient mediaserver.MediaSource
+
 	// UI Components - Miller Columns
 	ColumnStack   *ColumnStack             // Stack of navigable list columns
 	Inspector     components.Inspector     // View projection (always shows details for middle column selection)
@@ -149,6 +153,7 @@ type Model struct {
 	pendingPlayback    *domain.MediaItem
 	pendingPlaylist    []domain.MediaItem
 	PendingSelectionID string // ID of item to select after load completes
+	pendingDelete      domain.ListItem
 }
 
 // NewModel creates a new application model
@@ -158,6 +163,7 @@ func NewModel(
 	playlistSvc *playlist.Service,
 	searchSvc *search.Service,
 	playbackSvc *player.Service,
+	mediaClient mediaserver.MediaSource,
 	appConfig *config.Config,
 	uiConfig config.UIConfig,
 	version string,
@@ -169,6 +175,7 @@ func NewModel(
 		PlaylistService: playlistSvc,
 		SearchSvc:       searchSvc,
 		PlaybackSvc:     playbackSvc,
+		MediaClient:     mediaClient,
 		AppConfig:       appConfig,
 		UIConfig:        uiConfig,
 		Version:         version,
@@ -692,6 +699,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case RefreshCurrentMsg:
 		return m, m.refreshAfterStatusChange(msg.LibraryID)
+
+	case MediaItemDeletedMsg:
+		// Instead of just refreshing the UI, we invalidate and reload.
+		// Find the column that has this item and remove it from view instantly,
+		// and also trigger a background refresh.
+		m.StatusMsg = "Deleted successfully"
+		cmds = append(cmds, ClearStatusCmd(3*time.Second))
+		return m, tea.Batch(append(cmds, m.refreshCurrentView())...)
 	}
 
 	// Update the focused column (top of stack)
