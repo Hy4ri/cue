@@ -57,7 +57,7 @@ func mapLibrary(item Item) *domain.Library {
 func MapMovies(items []Item, serverURL string) []*domain.MediaItem {
 	movies := make([]*domain.MediaItem, 0, len(items))
 	for _, item := range items {
-		if item.Type != "Movie" {
+		if item.Type != "Movie" && item.Type != "Video" && item.Type != "MusicVideo" {
 			continue
 		}
 		movie := mapMovie(item, serverURL)
@@ -531,7 +531,7 @@ func MapLibraryContent(items []Item, serverURL string) []domain.ListItem {
 	result := make([]domain.ListItem, 0, len(items))
 	for _, item := range items {
 		switch item.Type {
-		case "Movie":
+		case "Movie", "Video", "MusicVideo":
 			movie := mapMovie(item, serverURL)
 			result = append(result, &movie)
 		case "Series":

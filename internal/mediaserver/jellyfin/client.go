@@ -616,7 +616,7 @@ func (c *Client) GetPlaylistItems(ctx context.Context, playlistID string) ([]*do
 	items := make([]*domain.MediaItem, 0, len(resp.Items))
 	for _, item := range resp.Items {
 		switch item.Type {
-		case "Movie":
+		case "Movie", "Video", "MusicVideo":
 			movie := mapMovie(item, c.baseURL)
 			items = append(items, &movie)
 		case "Episode":

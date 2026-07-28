@@ -30,7 +30,7 @@ func MapLibraries(dirs []Directory) []domain.Library {
 func MapMovies(metadata []Metadata, serverURL string) []*domain.MediaItem {
 	items := make([]*domain.MediaItem, 0, len(metadata))
 	for _, m := range metadata {
-		if m.Type != "movie" {
+		if m.Type != "movie" && m.Type != "video" && m.Type != "clip" {
 			continue
 		}
 		item := mapMovie(m, serverURL)
@@ -251,7 +251,7 @@ func MapOnDeck(metadata []Metadata, serverURL string) []*domain.MediaItem {
 	items := make([]*domain.MediaItem, 0, len(metadata))
 	for _, m := range metadata {
 		switch m.Type {
-		case "movie":
+		case "movie", "video", "clip":
 			item := mapMovie(m, serverURL)
 			items = append(items, &item)
 		case "episode":
@@ -265,7 +265,7 @@ func MapOnDeck(metadata []Metadata, serverURL string) []*domain.MediaItem {
 // MapMediaItem converts a single Plex metadata to domain media item
 func MapMediaItem(m Metadata, serverURL string) domain.MediaItem {
 	switch m.Type {
-	case "movie":
+	case "movie", "video", "clip":
 		return mapMovie(m, serverURL)
 	case "episode":
 		return mapEpisode(m, serverURL)
@@ -392,7 +392,7 @@ func MapLibraryContent(metadata []Metadata, serverURL string) []domain.ListItem 
 	result := make([]domain.ListItem, 0, len(metadata))
 	for _, m := range metadata {
 		switch m.Type {
-		case "movie":
+		case "movie", "video", "clip":
 			item := mapMovie(m, serverURL)
 			result = append(result, &item)
 		case "show":
