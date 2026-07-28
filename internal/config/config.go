@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -29,11 +31,12 @@ type Config struct {
 
 // ServerConfig holds media server configuration
 type ServerConfig struct {
-	Type     SourceType `mapstructure:"type"     yaml:"type"`     // "plex" or "jellyfin"
-	URL      string     `mapstructure:"url"      yaml:"url"`      // Server URL
-	Token    string     `mapstructure:"token"    yaml:"token"`    // Plex token OR Jellyfin API key
-	UserID   string     `mapstructure:"user_id"  yaml:"user_id"`  // Jellyfin only
-	Username string     `mapstructure:"username" yaml:"username"` // Jellyfin only (display)
+	Type     SourceType `mapstructure:"type"     yaml:"type"`       // "plex" or "jellyfin"
+	URL      string     `mapstructure:"url"      yaml:"url"`        // Server URL
+	Token    string     `mapstructure:"token"    yaml:"token"`      // Plex token OR Jellyfin API key
+	UserID   string     `mapstructure:"user_id"  yaml:"user_id"`    // Jellyfin only
+	Username string     `mapstructure:"username" yaml:"username"`   // Jellyfin only (display)
+	DeviceID string     `mapstructure:"device_id" yaml:"device_id"` // Unique per-install device identifier
 }
 
 // PlayerConfig holds media player configuration
@@ -123,7 +126,33 @@ func LoadConfig() (*Config, error) {
 	}
 	cfg.applyCurrentProfile()
 
+	// Ensure this install has a stable, unique device ID. Media servers
+	// (Jellyfin in particular) revoke tokens when another login reuses the
+	// same device ID, so a shared/static ID causes intermittent auth failures.
+	if cfg.Server.DeviceID == "" {
+		cfg.Server.DeviceID = generateDeviceID()
+		// Persist immediately for already-configured installs so the ID
+		// stays stable across runs. Fresh installs save during setup.
+		if configFile := viper.ConfigFileUsed(); configFile != "" {
+			viper.Set("server.device_id", cfg.Server.DeviceID)
+			if err := viper.WriteConfigAs(configFile); err != nil {
+				return nil, fmt.Errorf("failed to save device ID: %w", err)
+			}
+		}
+	}
+
 	return cfg, nil
+}
+
+// generateDeviceID returns a random unique identifier for this install
+func generateDeviceID() string {
+	buf := make([]byte, 8)
+	if _, err := rand.Read(buf); err != nil {
+		// Fall back to the legacy static ID; auth still works, just without
+		// per-install uniqueness
+		return "cue-tui-client"
+	}
+	return "cue-" + hex.EncodeToString(buf)
 }
 
 // SaveConfig saves the current configuration to file
@@ -141,6 +170,7 @@ func SaveConfig(cfg *Config) error {
 	viper.Set("server.token", cfg.Server.Token)
 	viper.Set("server.user_id", cfg.Server.UserID)
 	viper.Set("server.username", cfg.Server.Username)
+	viper.Set("server.device_id", cfg.Server.DeviceID)
 
 	// Set player fields
 	viper.Set("player.command", cfg.Player.Command)

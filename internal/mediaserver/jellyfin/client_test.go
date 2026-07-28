@@ -18,7 +18,7 @@ func TestClientMarkPlayedUnplayed(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "token", "user123", nil)
+	client := NewClient(server.URL, "token", "user123", "test-device-id", nil)
 
 	// Test MarkPlayed
 	err := client.MarkPlayed(context.Background(), "item456")

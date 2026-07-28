@@ -9,9 +9,9 @@ import (
 	"github.com/SuperCoolPencil/cue/internal/config"
 	"github.com/SuperCoolPencil/cue/internal/domain"
 	"github.com/SuperCoolPencil/cue/internal/library"
+	"github.com/SuperCoolPencil/cue/internal/mediaserver"
 	"github.com/SuperCoolPencil/cue/internal/player"
 	"github.com/SuperCoolPencil/cue/internal/playlist"
-	"github.com/SuperCoolPencil/cue/internal/mediaserver"
 	"github.com/SuperCoolPencil/cue/internal/search"
 	tea "github.com/charmbracelet/bubbletea"
 )

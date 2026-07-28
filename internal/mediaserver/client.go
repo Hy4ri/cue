@@ -48,13 +48,13 @@ func NewClient(cfg *config.Config, logger *slog.Logger) (MediaSource, error) {
 
 	switch cfg.Server.Type {
 	case config.SourceTypePlex:
-		return plex.NewClient(cfg.Server.URL, cfg.Server.Token, logger), nil
+		return plex.NewClient(cfg.Server.URL, cfg.Server.Token, cfg.Server.DeviceID, logger), nil
 
 	case config.SourceTypeJellyfin:
 		if cfg.Server.UserID == "" {
 			return nil, fmt.Errorf("jellyfin requires user ID")
 		}
-		return jellyfin.NewClient(cfg.Server.URL, cfg.Server.Token, cfg.Server.UserID, logger), nil
+		return jellyfin.NewClient(cfg.Server.URL, cfg.Server.Token, cfg.Server.UserID, cfg.Server.DeviceID, logger), nil
 
 	default:
 		return nil, fmt.Errorf("unknown server type: %s", cfg.Server.Type)
