@@ -34,6 +34,7 @@ type KeyMap struct {
 	Logout          key.Binding
 	PlaylistModal   key.Binding
 	Delete          key.Binding
+	Remove          key.Binding
 	NewPlaylist     key.Binding
 	Queue           key.Binding
 	NextEpisode     key.Binding
@@ -154,8 +155,14 @@ func DefaultKeyMap() KeyMap {
 			key.WithHelp("space", "playlist"),
 		),
 		Delete: key.NewBinding(
+			// Terminals report shifted printable characters as uppercase runes
+			// ("X"), unlike named keys such as Shift+Enter.
+			key.WithKeys("X"),
+			key.WithHelp("shift+x", "delete from server"),
+		),
+		Remove: key.NewBinding(
 			key.WithKeys("x"),
-			key.WithHelp("x", "delete/remove"),
+			key.WithHelp("x", "remove"),
 		),
 		NewPlaylist: key.NewBinding(
 			key.WithKeys("n"),

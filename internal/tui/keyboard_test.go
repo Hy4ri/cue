@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -45,6 +46,46 @@ func TestResumeConfirmationCancel(t *testing.T) {
 	}
 	if got.pendingPlayback != nil {
 		t.Fatalf("pending playback should be cleared")
+	}
+}
+
+func TestShiftXShowsDeleteConfirmationForMedia(t *testing.T) {
+	col := components.NewListColumn(components.ColumnTypeMovies, "Movies")
+	col.SetItems([]*domain.MediaItem{{ID: "m1", Title: "Movie", Type: domain.MediaTypeMovie}})
+	col.SetFocused(true)
+
+	model := Model{State: StateBrowsing, ColumnStack: NewColumnStack()}
+	model.ColumnStack.Push(col, 0)
+
+	updated, _ := model.handleKeyMsg(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("X")})
+	got := updated.(Model)
+	if got.State != StateConfirmDelete {
+		t.Fatalf("state = %v, want StateConfirmDelete", got.State)
+	}
+	if got.pendingDelete == nil || got.pendingDelete.GetID() != "m1" {
+		t.Fatalf("pending deletion = %#v, want movie m1", got.pendingDelete)
+	}
+}
+
+func TestDeleteConfirmationEnterCancelsByDefault(t *testing.T) {
+	model := Model{
+		State:         StateConfirmDelete,
+		pendingDelete: &domain.MediaItem{ID: "m1", Title: "Movie", Type: domain.MediaTypeMovie},
+	}
+
+	updated, _ := model.handleKeyMsg(tea.KeyMsg{Type: tea.KeyEnter})
+	got := updated.(Model)
+	if got.State != StateBrowsing {
+		t.Fatalf("state = %v, want StateBrowsing", got.State)
+	}
+	if got.pendingDelete != nil {
+		t.Fatal("pending deletion should be cleared")
+	}
+}
+
+func TestHelpListsDeleteShortcut(t *testing.T) {
+	if !strings.Contains((Model{}).renderHelp(), "Shift+X") {
+		t.Fatal("help does not list Shift+X")
 	}
 }
 

@@ -66,6 +66,11 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		switch {
+		// Deletion defaults to No, so Enter is a safe cancellation rather
+		// than confirmation. Explicit Y is required to delete the item.
+		case msg.Type == tea.KeyEnter:
+			m.pendingDelete = nil
+			m.State = StateBrowsing
 		case key.Matches(msg, Keys.Confirm):
 			item := m.pendingDelete
 			m.pendingDelete = nil
@@ -148,6 +153,8 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handlePlaylistModal()
 	case key.Matches(msg, Keys.Delete):
 		return m.handleDelete()
+	case key.Matches(msg, Keys.Remove):
+		return m.handleRemove()
 	case key.Matches(msg, Keys.NewPlaylist):
 		return m.handleNewPlaylist()
 	case key.Matches(msg, Keys.Queue):
@@ -552,12 +559,33 @@ func (m Model) handlePlaylistModal() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleDelete handles deletion of playlists or playlist items
+// handleDelete prompts to delete the selected media item from the server.
 func (m Model) handleDelete() (tea.Model, tea.Cmd) {
 	top := m.ColumnStack.Top()
 	if top == nil {
 		return m, nil
 	}
+
+	if rawItem := top.SelectedItem(); rawItem != nil {
+		if item, ok := rawItem.(domain.ListItem); ok {
+			switch item.GetItemType() {
+			case "movie", "show", "episode":
+				m.pendingDelete = item
+				m.State = StateConfirmDelete
+			}
+		}
+	}
+	return m, nil
+}
+
+// handleRemove removes playlists, playlist entries, or queue entries without
+// deleting media from the server.
+func (m Model) handleRemove() (tea.Model, tea.Cmd) {
+	top := m.ColumnStack.Top()
+	if top == nil {
+		return m, nil
+	}
+
 	switch top.ColumnType() {
 	case components.ColumnTypePlaylistItems:
 		item := top.SelectedMediaItem()
@@ -573,14 +601,6 @@ func (m Model) handleDelete() (tea.Model, tea.Cmd) {
 		if top.ContentID() == queueLibraryID {
 			if item := top.SelectedMediaItem(); item != nil {
 				return m, RemoveFromQueueCmd(m.PlaylistService, item.ID)
-			}
-		} else if rawItem := top.SelectedItem(); rawItem != nil {
-			// If it's a media item (Movie, Show, Episode), prompt for local file deletion
-			if item, ok := rawItem.(domain.ListItem); ok {
-				if item.GetItemType() == "movie" || item.GetItemType() == "show" || item.GetItemType() == "episode" {
-					m.pendingDelete = item
-					m.State = StateConfirmDelete
-				}
 			}
 		}
 	}

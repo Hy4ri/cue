@@ -346,6 +346,7 @@ func (m Model) renderHelp() string {
 		{"Enter", "Play / Resume"},
 		{"p", "Play from start"},
 		{"Shift+Enter", "Next show episode"},
+		{"Shift+X", "Delete media"},
 		{"w", "Mark watched"},
 		{"u", "Mark unwatched"},
 		{"N", "Next episode"},
