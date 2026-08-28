@@ -26,6 +26,7 @@ func (e ErrMsg) Error() string {
 // LibrariesLoadedMsg signals that libraries have been loaded
 type LibrariesLoadedMsg struct {
 	Libraries []domain.Library
+	Refresh   bool // true for refresh-all: keep the navigation stack if possible
 }
 
 // MoviesLoadedMsg signals that movies have been loaded
@@ -92,12 +93,14 @@ type PlaybackFinishedMsg struct {
 
 // MarkWatchedMsg signals a request to mark an item as watched
 type MarkWatchedMsg struct {
+	ItemID    string
 	Title     string
 	LibraryID string
 }
 
 // MarkUnwatchedMsg signals a request to mark an item as unwatched
 type MarkUnwatchedMsg struct {
+	ItemID    string
 	Title     string
 	LibraryID string
 }
@@ -118,6 +121,7 @@ type StatusMsg struct {
 type LibrarySyncProgressMsg struct {
 	LibraryID   string
 	LibraryType string
+	Generation  int // Sync generation; stale generations are dropped
 	Loaded      int
 	Total       int
 	Done        bool

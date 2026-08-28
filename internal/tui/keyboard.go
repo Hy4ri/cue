@@ -235,6 +235,9 @@ func (m Model) handleGlobalSearch() (tea.Model, tea.Cmd) {
 
 // handleDrillIn handles drilling into the selected item (l key)
 func (m Model) handleDrillIn() (tea.Model, tea.Cmd) {
+	// Manual navigation cancels any pending search-navigation plan; a stale
+	// plan resuming on a later load would teleport the user
+	m.clearNavPlan()
 	top := m.ColumnStack.Top()
 	if top == nil {
 		return m, nil
@@ -257,6 +260,7 @@ func (m Model) handleDrillIn() (tea.Model, tea.Cmd) {
 
 // handleEnter handles the enter key press
 func (m Model) handleEnter() (tea.Model, tea.Cmd) {
+	m.clearNavPlan()
 	top := m.ColumnStack.Top()
 	if top == nil {
 		return m, nil
@@ -338,6 +342,10 @@ func (m Model) handleRefresh() (tea.Model, tea.Cmd) {
 		if lib == nil || lib.ID == playlistsLibraryID || lib.Type == "cue" || lib.Type == "filter" || lib.Type == "profile" || lib.Type == "config" || lib.Type == "cache" {
 			return m, nil
 		}
+		// Already syncing: don't start a second chain or double-count
+		if state, ok := m.LibraryStates[lib.ID]; ok && state.Status == components.StatusSyncing {
+			return m, nil
+		}
 		m.LibraryStates[lib.ID] = components.LibrarySyncState{Status: components.StatusSyncing}
 		m.SyncingCount++
 		m.Loading = true
@@ -345,7 +353,7 @@ func (m Model) handleRefresh() (tea.Model, tea.Cmd) {
 		m.updateLibraryStates()
 		// Invalidate then sync
 		m.LibraryService.InvalidateLibrary(lib.ID)
-		return m, SyncLibraryCmd(m.LibraryService, *lib)
+		return m, SyncLibraryCmd(m.LibraryService, *lib, m.SyncGen)
 
 	case components.ColumnTypeMovies, components.ColumnTypeMixed, components.ColumnTypeShows:
 		return m.refreshLibraryContent(top)
@@ -353,8 +361,7 @@ func (m Model) handleRefresh() (tea.Model, tea.Cmd) {
 	case components.ColumnTypeSeasons:
 		// Refresh current show's seasons (invalidate seasons + episodes, re-fetch seasons)
 		m.LibraryService.InvalidateShow(m.currentLibID, m.currentShowID)
-		top.SetItems(nil)
-		top.SetLoading(true)
+		top.SetRefreshing(true)
 		m.Loading = true
 		return m, LoadSeasonsCmd(m.LibraryService, m.currentLibID, m.currentShowID)
 
@@ -369,15 +376,13 @@ func (m Model) handleRefresh() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.LibraryService.InvalidateSeason(m.currentLibID, m.currentShowID, season.ID)
-		top.SetItems(nil)
-		top.SetLoading(true)
+		top.SetRefreshing(true)
 		m.Loading = true
 		return m, LoadEpisodesCmd(m.LibraryService, m.currentLibID, m.currentShowID, season.ID)
 
 	case components.ColumnTypePlaylists:
 		// Refresh playlists
-		top.SetItems(nil)
-		top.SetLoading(true)
+		top.SetRefreshing(true)
 		m.Loading = true
 		return m, LoadPlaylistsCmd(m.PlaylistService)
 
@@ -386,8 +391,7 @@ func (m Model) handleRefresh() (tea.Model, tea.Cmd) {
 		if m.currentPlaylistID == "" {
 			return m, nil
 		}
-		top.SetItems(nil)
-		top.SetLoading(true)
+		top.SetRefreshing(true)
 		m.Loading = true
 		return m, LoadPlaylistItemsCmd(m.PlaylistService, m.currentPlaylistID)
 	}
@@ -406,30 +410,29 @@ func (m Model) refreshLibraryContent(top *components.ListColumn) (Model, tea.Cmd
 		return m, nil
 	}
 	m.LibraryService.InvalidateLibrary(lib.ID)
-	top.SetItems(nil)
-	top.SetLoading(true)
+	top.SetRefreshing(true)
 	m.Loading = true
 
 	switch lib.Type {
 	case "movie":
-		return m, LoadMoviesCmd(m.LibraryService, lib.ID)
+		return m, LoadMoviesCmd(m.LibraryService, *lib)
 	case "show":
-		return m, LoadShowsCmd(m.LibraryService, lib.ID)
+		return m, LoadShowsCmd(m.LibraryService, *lib)
 	default:
-		return m, LoadMixedLibraryCmd(m.LibraryService, lib.ID)
+		return m, LoadMixedLibraryCmd(m.LibraryService, *lib)
 	}
 }
 
-// handleRefreshAll refreshes all libraries and resets to library view
+// handleRefreshAll refreshes all libraries. Unlike before, the navigation
+// stack is preserved: the LibrariesLoadedMsg handler updates the root column
+// in place and reloads the visible view, only resetting when the library the
+// user is inside no longer exists.
 func (m Model) handleRefreshAll() (tea.Model, tea.Cmd) {
 	m.Loading = true
 
-	// Invalidate all cached data, then re-fetch libraries from the server.
-	// This goes through LoadLibrariesCmd -> LibrariesLoadedMsg which rebuilds
-	// the full library list and triggers SyncAllLibrariesCmd with fresh data.
 	m.LibraryService.InvalidateAll()
 	m.PlaylistService.InvalidatePlaylists()
-	return m, LoadLibrariesCmd(m.LibraryService)
+	return m, RefreshLibrariesCmd(m.LibraryService)
 }
 
 // handleMarkWatched marks the selected item as watched

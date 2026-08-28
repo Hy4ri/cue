@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/spf13/viper"
 )
@@ -43,7 +44,7 @@ type ServerConfig struct {
 type PlayerConfig struct {
 	Command   string   `mapstructure:"command"`
 	Args      []string `mapstructure:"args"`
-	StartFlag string   `mapstructure:"start_flag"` // e.g., "--start=" or "--start-time="
+	StartFlag string   `mapstructure:"start_flag"` // e.g., "--start=%d" or "--start-time=%d"
 }
 
 // UIConfig holds UI configuration
@@ -110,10 +111,24 @@ func LoadConfig() (*Config, error) {
 	viper.SetConfigType("yaml")
 	viper.AddConfigPath(defaultConfigPath())
 	viper.AddConfigPath(".")
+	// The config file contains the server token: never world-readable
+	viper.SetConfigPermissions(0o600)
 
-	// Environment variable overrides
+	// Environment variable overrides. The replacer maps nested keys such as
+	// server.token to CUE_SERVER_TOKEN, while explicit bindings ensure
+	// env-only values are visible to Unmarshal.
 	viper.SetEnvPrefix("CUE")
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	viper.AutomaticEnv()
+	for _, key := range []string{
+		"server.type", "server.url", "server.token", "server.user_id",
+		"server.username", "server.device_id",
+		"player.command", "player.args", "player.start_flag",
+		"ui.show_watch_status", "ui.show_library_counts", "ui.hide_watched", "ui.autoplay",
+		"logging.file", "logging.level", "current_profile",
+	} {
+		_ = viper.BindEnv(key)
+	}
 
 	// Read config file if it exists
 	if err := viper.ReadInConfig(); err != nil {
@@ -121,6 +136,11 @@ func LoadConfig() (*Config, error) {
 			return nil, fmt.Errorf("error reading config file: %w", err)
 		}
 		// Config file not found is OK, use defaults
+	}
+
+	// Tighten pre-existing config files created with the old 0644 default
+	if configFile := viper.ConfigFileUsed(); configFile != "" {
+		_ = os.Chmod(configFile, 0o600)
 	}
 
 	if err := viper.Unmarshal(cfg); err != nil {
@@ -157,14 +177,18 @@ func generateDeviceID() string {
 	return "cue-" + hex.EncodeToString(buf)
 }
 
-// SaveConfig saves the current configuration to file
+// SaveConfig writes back to the loaded file, or the default path for a fresh install.
 func SaveConfig(cfg *Config) error {
-	configPath := defaultConfigPath()
-
-	// Ensure config directory exists
-	if err := os.MkdirAll(configPath, 0755); err != nil {
-		return fmt.Errorf("failed to create config directory: %w", err)
+	configFile := viper.ConfigFileUsed()
+	if configFile == "" {
+		configPath := defaultConfigPath()
+		if err := os.MkdirAll(configPath, 0755); err != nil {
+			return fmt.Errorf("failed to create config directory: %w", err)
+		}
+		configFile = filepath.Join(configPath, "config.yaml")
 	}
+
+	viper.SetConfigPermissions(0o600)
 
 	// Set server fields individually to ensure correct key names (snake_case)
 	viper.Set("server.type", cfg.Server.Type)
@@ -194,7 +218,6 @@ func SaveConfig(cfg *Config) error {
 	viper.Set("current_profile", cfg.CurrentProfile)
 	viper.Set("profiles", cfg.Profiles)
 
-	configFile := filepath.Join(configPath, "config.yaml")
 	if err := viper.WriteConfigAs(configFile); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
@@ -246,6 +269,14 @@ func DefaultCachePath() string {
 // ClearServerConfig removes all server-related configuration (type, URL, credentials)
 // while preserving other settings (player, UI, logging)
 func ClearServerConfig() error {
+	// Remove the active profile's credential copy as well, otherwise the next
+	// load would immediately restore the token we just cleared.
+	var current Config
+	if err := viper.Unmarshal(&current); err == nil && current.Profiles != nil {
+		delete(current.Profiles, current.CurrentProfile)
+		viper.Set("profiles", current.Profiles)
+	}
+
 	// Clear server fields in viper
 	viper.Set("server.type", "")
 	viper.Set("server.url", "")
@@ -253,12 +284,16 @@ func ClearServerConfig() error {
 	viper.Set("server.user_id", "")
 	viper.Set("server.username", "")
 
-	configPath := defaultConfigPath()
-	if err := os.MkdirAll(configPath, 0755); err != nil {
-		return fmt.Errorf("failed to create config directory: %w", err)
+	configFile := viper.ConfigFileUsed()
+	if configFile == "" {
+		configPath := defaultConfigPath()
+		if err := os.MkdirAll(configPath, 0755); err != nil {
+			return fmt.Errorf("failed to create config directory: %w", err)
+		}
+		configFile = filepath.Join(configPath, "config.yaml")
 	}
 
-	configFile := filepath.Join(configPath, "config.yaml")
+	viper.SetConfigPermissions(0o600)
 	if err := viper.WriteConfigAs(configFile); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}

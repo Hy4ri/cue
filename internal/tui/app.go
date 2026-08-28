@@ -139,6 +139,7 @@ type Model struct {
 	LibraryStates map[string]components.LibrarySyncState // Tracks progress per library
 	SyncingCount  int                                    // Libraries still syncing
 	MultiLibSync  bool                                   // True when syncing multiple libraries (R / startup)
+	SyncGen       int                                    // Current sync generation; messages from older generations are dropped
 
 	// Navigation plan for deep linking
 	navPlan *NavPlan
@@ -226,6 +227,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case LibrariesLoadedMsg:
 		m.Libraries = msg.Libraries
 
+		// New sync generation: any still-running chains from before this
+		// reload are stale and their messages will be dropped
+		m.SyncGen++
+
 		// Initialize all states to Syncing (including playlists)
 		m.LibraryStates = make(map[string]components.LibrarySyncState)
 		for _, lib := range msg.Libraries {
@@ -234,21 +239,51 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.LibraryStates[playlistsLibraryID] = components.LibrarySyncState{Status: components.StatusSyncing}
 		m.SyncingCount = len(msg.Libraries) + 1 // +1 for playlists
 		m.MultiLibSync = true
+		m.Inspector.SetLibraryStates(m.LibraryStates)
+		m.Loading = true
 
-		// Create the library column as the root
+		syncCmds := []tea.Cmd{
+			SyncAllLibrariesCmd(m.LibraryService, msg.Libraries, m.SyncGen),
+			SyncPlaylistsCmd(m.PlaylistService, playlistsLibraryID, m.SyncGen),
+		}
+
+		// Refresh-all with the user somewhere deeper: keep their position.
+		// Update the root column in place and reload the top column's
+		// content in the background instead of resetting to the root.
+		if msg.Refresh && m.ColumnStack.Len() > 1 {
+			libCol := m.libraryColumn()
+			var drilledID string
+			if libCol != nil {
+				if sel := libCol.SelectedLibrary(); sel != nil {
+					drilledID = sel.ID
+				}
+				libCol.ReplaceItems(m.allLibraryEntries())
+				libCol.SetLibraryStates(m.LibraryStates)
+			}
+
+			// The library the user is inside may have been removed
+			// server-side — that's the one case where resetting is the
+			// only sane answer
+			if drilledID != "" && !isVirtualLibraryID(drilledID) && m.findLibrary(drilledID) == nil {
+				m.StatusMsg = "Library no longer exists on server"
+				m.StatusIsErr = true
+				syncCmds = append(syncCmds, ClearStatusCmd(5*time.Second))
+			} else {
+				if reload := m.reloadTopColumnCmd(); reload != nil {
+					syncCmds = append(syncCmds, reload)
+				}
+				return m, tea.Batch(syncCmds...)
+			}
+		}
+
+		// Initial load (or unrecoverable refresh): build the root column
 		libCol := components.NewLibraryColumn(m.allLibraryEntries())
 		libCol.SetLibraryStates(m.LibraryStates)
 		libCol.SetShowWatchStatus(m.UIConfig.ShowWatchStatus)
 		libCol.SetShowLibraryCounts(m.UIConfig.ShowLibraryCounts)
-		m.Inspector.SetLibraryStates(m.LibraryStates)
 		m.ColumnStack.Reset(libCol)
 
-		// Start parallel sync of ALL libraries + playlists
-		m.Loading = true
-		return m, tea.Batch(
-			SyncAllLibrariesCmd(m.LibraryService, msg.Libraries),
-			SyncPlaylistsCmd(m.PlaylistService, playlistsLibraryID),
-		)
+		return m, tea.Batch(syncCmds...)
 
 	case MoviesLoadedMsg:
 		m.Loading = false
@@ -268,11 +303,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Update matching column with movies
 		if col := m.ColumnStack.FindColumn(msg.LibraryID); col != nil {
-			selectedID := m.getSelectedItemID(col)
-			col.SetItems(msg.Movies)
-			if selectedID != "" {
-				col.SetSelectedByID(selectedID)
-			}
+			col.ReplaceItems(msg.Movies)
 		}
 
 		m.updateInspector()
@@ -301,11 +332,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Update matching column with shows
 		if col := m.ColumnStack.FindColumn(msg.LibraryID); col != nil {
-			selectedID := m.getSelectedItemID(col)
-			col.SetItems(msg.Shows)
-			if selectedID != "" {
-				col.SetSelectedByID(selectedID)
-			}
+			col.ReplaceItems(msg.Shows)
 		}
 
 		m.updateInspector()
@@ -334,11 +361,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Update matching column with mixed content
 		if col := m.ColumnStack.FindColumn(msg.LibraryID); col != nil {
-			selectedID := m.getSelectedItemID(col)
-			col.SetItems(msg.Items)
-			if selectedID != "" {
-				col.SetSelectedByID(selectedID)
-			}
+			col.ReplaceItems(msg.Items)
 		}
 
 		m.updateInspector()
@@ -382,11 +405,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Classic path: populate seasons column
-		selectedID := m.getSelectedItemID(top)
-		top.SetItems(msg.Seasons)
-		if selectedID != "" {
-			top.SetSelectedByID(selectedID)
-		}
+		top.ReplaceItems(msg.Seasons)
 		m.updateInspector()
 
 		// Advance nav plan if waiting for this load
@@ -414,11 +433,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.validateContentID(msg.SeasonID) {
 			return m, nil
 		}
-		selectedID := m.getSelectedItemID(top)
-		top.SetItems(msg.Episodes)
-		if selectedID != "" {
-			top.SetSelectedByID(selectedID)
-		}
+		top.ReplaceItems(msg.Episodes)
 		m.updateInspector()
 
 		// Advance nav plan if waiting for this load
@@ -461,55 +476,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case MarkWatchedMsg:
 		m.StatusMsg = "Marked watched: " + msg.Title
-		// Update local state for immediate feedback
-		if top := m.ColumnStack.Top(); top != nil {
-			if item := top.SelectedItem(); item != nil {
-				switch v := item.(type) {
-				case *domain.MediaItem:
-					v.IsPlayed = true
-					v.ViewOffset = 0
-					// Propagate to parents in the stack
-					m.propagateWatchStatus(v, true)
-				case *domain.Show:
-					v.UnwatchedCount = 0
-				case *domain.Season:
-					v.UnwatchedCount = 0
-				case *components.SeasonHeader:
-					v.Season.UnwatchedCount = 0
-				}
-			}
-		}
-		// Delayed targeted refresh to avoid stale data flicker
-		cmds = append(cmds, tea.Tick(500*time.Millisecond, func(t time.Time) tea.Msg {
-			return RefreshCurrentMsg{LibraryID: msg.LibraryID}
-		}))
+		m.applyWatchState(msg.ItemID, true)
 		cmds = append(cmds, ClearStatusCmd(3*time.Second))
 		return m, tea.Batch(cmds...)
 
 	case MarkUnwatchedMsg:
 		m.StatusMsg = "Marked unwatched: " + msg.Title
-		// Update local state for immediate feedback
-		if top := m.ColumnStack.Top(); top != nil {
-			if item := top.SelectedItem(); item != nil {
-				switch v := item.(type) {
-				case *domain.MediaItem:
-					v.IsPlayed = false
-					v.ViewOffset = 0
-					// Propagate to parents in the stack
-					m.propagateWatchStatus(v, false)
-				case *domain.Show:
-					v.UnwatchedCount = v.EpisodeCount
-				case *domain.Season:
-					v.UnwatchedCount = v.EpisodeCount
-				case *components.SeasonHeader:
-					v.Season.UnwatchedCount = v.Season.EpisodeCount
-				}
-			}
-		}
-		// Delayed targeted refresh to avoid stale data flicker
-		cmds = append(cmds, tea.Tick(500*time.Millisecond, func(t time.Time) tea.Msg {
-			return RefreshCurrentMsg{LibraryID: msg.LibraryID}
-		}))
+		m.applyWatchState(msg.ItemID, false)
 		cmds = append(cmds, ClearStatusCmd(3*time.Second))
 		return m, tea.Batch(cmds...)
 
@@ -517,6 +490,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.clearNavPlan()
 		m.StatusIsErr = true
 		m.Loading = false
+		// A failed refresh must not leave the column spinner running
+		if top := m.ColumnStack.Top(); top != nil {
+			top.SetRefreshing(false)
+		}
 		if errors.Is(msg.Err, domain.ErrAuthFailed) {
 			// Actionable, persistent message: the token was revoked/expired
 			// and the user must re-authenticate
@@ -539,6 +516,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case LibrarySyncProgressMsg:
+		// Drop messages from sync chains superseded by a newer library
+		// reload; without this, stale chains corrupt SyncingCount and can
+		// wedge the loading state permanently
+		if msg.Generation != m.SyncGen {
+			return m, nil
+		}
+
 		state := m.LibraryStates[msg.LibraryID]
 
 		if msg.Error != nil {
@@ -602,8 +586,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case PlaylistsLoadedMsg:
 		m.Loading = false
+
+		// Validate content ID like every other load handler: a slow playlist
+		// fetch must not clobber whatever column the user navigated to since
+		if !m.validateContentID(playlistsLibraryID) {
+			return m, nil
+		}
+
 		if top := m.ColumnStack.Top(); top != nil {
-			top.SetItems(msg.Playlists)
+			top.ReplaceItems(msg.Playlists)
 		}
 		m.updateInspector()
 		return m, nil
@@ -618,7 +609,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.currentPlaylistID = msg.PlaylistID
 		if top := m.ColumnStack.Top(); top != nil {
-			top.SetItems(msg.Items)
+			top.ReplaceItems(msg.Items)
 		}
 		m.updateInspector()
 		return m, nil
@@ -626,7 +617,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ContinueWatchingLoadedMsg:
 		m.Loading = false
 		if top := m.ColumnStack.Top(); top != nil && top.ContentID() == continueLibraryID {
-			top.SetItems(msg.Items)
+			top.ReplaceItems(msg.Items)
 		}
 		m.updateInspector()
 		return m, nil
@@ -781,13 +772,13 @@ func (m *Model) refreshCurrentView() tea.Cmd {
 	case components.ColumnTypeMovies:
 		if libCol := m.libraryColumn(); libCol != nil {
 			if lib := libCol.SelectedLibrary(); lib != nil {
-				cmds = append(cmds, LoadMoviesCmd(m.LibraryService, lib.ID))
+				cmds = append(cmds, LoadMoviesCmd(m.LibraryService, *lib))
 			}
 		}
 	case components.ColumnTypeShows:
 		if libCol := m.libraryColumn(); libCol != nil {
 			if lib := libCol.SelectedLibrary(); lib != nil {
-				cmds = append(cmds, LoadShowsCmd(m.LibraryService, lib.ID))
+				cmds = append(cmds, LoadShowsCmd(m.LibraryService, *lib))
 			}
 		}
 	case components.ColumnTypeSeasons:
@@ -806,19 +797,23 @@ func (m *Model) refreshCurrentView() tea.Cmd {
 		}
 		// ALSO reload the parent (Shows) to update counters
 		if showCol := m.ColumnStack.Get(m.ColumnStack.Len() - 3); showCol != nil && showCol.ColumnType() == components.ColumnTypeShows {
-			cmds = append(cmds, LoadShowsCmd(m.LibraryService, m.currentLibID))
+			if lib := m.findLibrary(m.currentLibID); lib != nil {
+				cmds = append(cmds, LoadShowsCmd(m.LibraryService, *lib))
+			}
 		}
 	case components.ColumnTypeSeasonEpisodes:
 		// Collapsible view: reload seasons for the show
 		cmds = append(cmds, LoadSeasonsCmd(m.LibraryService, m.currentLibID, m.currentShowID))
 		// ALSO reload the parent (Shows) to update counters
 		if showCol := m.ColumnStack.Get(m.ColumnStack.Len() - 2); showCol != nil && showCol.ColumnType() == components.ColumnTypeShows {
-			cmds = append(cmds, LoadShowsCmd(m.LibraryService, m.currentLibID))
+			if lib := m.findLibrary(m.currentLibID); lib != nil {
+				cmds = append(cmds, LoadShowsCmd(m.LibraryService, *lib))
+			}
 		}
 	case components.ColumnTypeMixed:
 		if libCol := m.libraryColumn(); libCol != nil {
 			if lib := libCol.SelectedLibrary(); lib != nil {
-				cmds = append(cmds, LoadMixedLibraryCmd(m.LibraryService, lib.ID))
+				cmds = append(cmds, LoadMixedLibraryCmd(m.LibraryService, *lib))
 			}
 		}
 	}
@@ -828,6 +823,113 @@ func (m *Model) refreshCurrentView() tea.Cmd {
 	}
 
 	return LoadLibrariesCmd(m.LibraryService)
+}
+
+// reloadTopColumnCmd returns a command reloading the top column's content
+// from the server, landing via ReplaceItems so the cursor and view state
+// survive. Used by refresh-all to freshen the visible view without
+// resetting navigation. Returns nil at the root (updated in place).
+func (m *Model) reloadTopColumnCmd() tea.Cmd {
+	top := m.ColumnStack.Top()
+	if top == nil {
+		return nil
+	}
+
+	lib := m.findLibrary(m.currentLibID)
+	if m.currentLibID == continueLibraryID {
+		top.SetRefreshing(true)
+		return LoadContinueWatchingCmd(m.LibraryService)
+	}
+
+	switch top.ColumnType() {
+	case components.ColumnTypeMovies:
+		if lib != nil {
+			top.SetRefreshing(true)
+			return LoadMoviesCmd(m.LibraryService, *lib)
+		}
+	case components.ColumnTypeShows:
+		if lib != nil {
+			top.SetRefreshing(true)
+			return LoadShowsCmd(m.LibraryService, *lib)
+		}
+	case components.ColumnTypeMixed:
+		if lib != nil {
+			top.SetRefreshing(true)
+			return LoadMixedLibraryCmd(m.LibraryService, *lib)
+		}
+	case components.ColumnTypeSeasons:
+		if m.currentShowID != "" {
+			top.SetRefreshing(true)
+			return LoadSeasonsCmd(m.LibraryService, m.currentLibID, m.currentShowID)
+		}
+	case components.ColumnTypeSeasonEpisodes:
+		if m.currentShowID != "" {
+			top.SetRefreshing(true)
+			return LoadSeasonsCmd(m.LibraryService, m.currentLibID, m.currentShowID)
+		}
+	case components.ColumnTypeEpisodes:
+		if seasonCol := m.ColumnStack.Get(m.ColumnStack.Len() - 2); seasonCol != nil {
+			if season := seasonCol.SelectedSeason(); season != nil {
+				top.SetRefreshing(true)
+				return LoadEpisodesCmd(m.LibraryService, m.currentLibID, m.currentShowID, season.ID)
+			}
+		}
+	case components.ColumnTypePlaylists:
+		top.SetRefreshing(true)
+		return LoadPlaylistsCmd(m.PlaylistService)
+	case components.ColumnTypePlaylistItems:
+		if m.currentPlaylistID != "" {
+			top.SetRefreshing(true)
+			return LoadPlaylistItemsCmd(m.PlaylistService, m.currentPlaylistID)
+		}
+	}
+	return nil
+}
+
+func isVirtualLibraryID(id string) bool {
+	if id == playlistsLibraryID {
+		return true
+	}
+	for _, lib := range virtualLibraryEntries() {
+		if lib.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// applyWatchState patches an item's watch state in the cache and in every
+// visible column. This replaces the old invalidate-everything-and-refetch
+// approach: the UI updates instantly and no network requests are issued.
+func (m *Model) applyWatchState(itemID string, played bool) {
+	m.LibraryService.SetWatchState(itemID, played)
+
+	// Patch the item wherever a column renders it, and adjust unwatched
+	// counters on visible show/season rows if an episode flipped state.
+	var patched *domain.MediaItem
+	flipped := false
+	for i := 0; i < m.ColumnStack.Len(); i++ {
+		if col := m.ColumnStack.Get(i); col != nil {
+			if item, f := col.ApplyWatchState(itemID, played); item != nil {
+				patched = item
+				flipped = flipped || f
+			}
+		}
+	}
+
+	if flipped && patched != nil && patched.ShowID != "" {
+		delta := 1
+		if played {
+			delta = -1
+		}
+		for i := 0; i < m.ColumnStack.Len(); i++ {
+			if col := m.ColumnStack.Get(i); col != nil {
+				col.AdjustUnwatchedCounts(patched.ShowID, patched.ParentID, delta)
+			}
+		}
+	}
+
+	m.updateInspector()
 }
 
 // refreshAfterStatusChange handles refreshing the UI after a watch status change.
@@ -898,16 +1000,4 @@ func (m *Model) updateInspector() {
 	} else {
 		m.Inspector.SetItem(nil)
 	}
-}
-
-// getSelectedItemID returns the ID of the selected item in a column
-func (m Model) getSelectedItemID(c *components.ListColumn) string {
-	if c == nil {
-		return ""
-	}
-	item, ok := c.SelectedItem().(domain.ListItem)
-	if !ok {
-		return ""
-	}
-	return item.GetID()
 }

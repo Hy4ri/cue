@@ -1,6 +1,7 @@
 package jellyfin
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -48,16 +49,33 @@ func NewClient(baseURL, token, userID, deviceID string, logger *slog.Logger) *Cl
 	}
 }
 
-// doRequest performs an authenticated HTTP request to the Jellyfin API
-// Includes retry logic with exponential backoff for 5xx server errors
-func (c *Client) doRequest(ctx context.Context, method, path string, query url.Values) ([]byte, error) {
+// do performs an authenticated HTTP request to the Jellyfin API. All error
+// mapping lives here: 401 → domain.ErrAuthFailed, transport failures →
+// domain.ErrServerOffline (wrapped with the cause), any 2xx → success.
+// Idempotent requests (retry=true) are retried on network errors and 5xx
+// responses with exponential backoff.
+func (c *Client) do(ctx context.Context, method, path string, query url.Values, jsonBody interface{}, retry bool) ([]byte, error) {
 	reqURL := fmt.Sprintf("%s%s", c.baseURL, path)
 	if query != nil {
 		reqURL = fmt.Sprintf("%s?%s", reqURL, query.Encode())
 	}
 
+	var bodyBytes []byte
+	if jsonBody != nil {
+		var err error
+		bodyBytes, err = json.Marshal(jsonBody)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal request: %w", err)
+		}
+	}
+
+	attempts := 1
+	if retry {
+		attempts = maxRetries + 1
+	}
+
 	var lastErr error
-	for attempt := 0; attempt <= maxRetries; attempt++ {
+	for attempt := 0; attempt < attempts; attempt++ {
 		// Check context before each attempt
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -74,21 +92,28 @@ func (c *Client) doRequest(ctx context.Context, method, path string, query url.V
 			}
 		}
 
-		req, err := http.NewRequestWithContext(ctx, method, reqURL, nil)
+		var reqBody io.Reader
+		if bodyBytes != nil {
+			reqBody = bytes.NewReader(bodyBytes)
+		}
+		req, err := http.NewRequestWithContext(ctx, method, reqURL, reqBody)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create request: %w", err)
 		}
 
-		// Set Jellyfin auth headers
 		req.Header.Set("Accept", "application/json")
 		req.Header.Set("X-Emby-Authorization", buildAuthHeader(c.token, c.deviceID))
+		if bodyBytes != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
 
-		c.logger.Debug("jellyfin request", "method", method, "url", reqURL, "attempt", attempt)
+		c.logger.Debug("jellyfin request", "method", method, "path", path, "attempt", attempt)
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
-			c.logger.Error("jellyfin request failed", "error", err)
-			return nil, domain.ErrServerOffline
+			lastErr = fmt.Errorf("%w: %v", domain.ErrServerOffline, err)
+			c.logger.Warn("jellyfin request failed", "error", err, "method", method, "path", path, "attempt", attempt)
+			continue
 		}
 
 		body, err := io.ReadAll(resp.Body)
@@ -97,47 +122,43 @@ func (c *Client) doRequest(ctx context.Context, method, path string, query url.V
 			return nil, fmt.Errorf("failed to read response: %w", err)
 		}
 
-		if resp.StatusCode == http.StatusUnauthorized {
+		switch {
+		case resp.StatusCode == http.StatusUnauthorized:
 			return nil, domain.ErrAuthFailed
-		}
-
-		// Retry on 5xx server errors
-		if resp.StatusCode >= 500 && resp.StatusCode < 600 {
-			lastErr = fmt.Errorf("server error: %d - %s", resp.StatusCode, string(body))
-			queryStr := ""
-			if query != nil {
-				queryStr = query.Encode()
-			}
-			c.logger.Warn("jellyfin server error, will retry",
+		case resp.StatusCode >= 500:
+			lastErr = fmt.Errorf("server error: %d - %s", resp.StatusCode, truncateForLog(body))
+			c.logger.Warn("jellyfin server error",
 				"status", resp.StatusCode,
-				"body", string(body),
 				"attempt", attempt,
-				"maxRetries", maxRetries,
+				"method", method,
 				"path", path,
-				"query", queryStr,
 			)
 			continue
-		}
-
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			c.logger.Error("jellyfin request error", "status", resp.StatusCode, "body", string(body))
+		case resp.StatusCode >= 200 && resp.StatusCode < 300:
+			return body, nil
+		default:
+			c.logger.Error("jellyfin request error", "status", resp.StatusCode, "path", path, "body", truncateForLog(body))
 			return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 		}
-
-		return body, nil
 	}
 
-	queryStr := ""
-	if query != nil {
-		queryStr = query.Encode()
-	}
-	c.logger.Error("jellyfin request failed after retries",
-		"error", lastErr,
-		"url", reqURL,
-		"path", path,
-		"query", queryStr,
-	)
+	c.logger.Error("jellyfin request failed", "error", lastErr, "method", method, "path", path)
 	return nil, lastErr
+}
+
+// doRequest performs an idempotent (retried) GET-style request
+func (c *Client) doRequest(ctx context.Context, method, path string, query url.Values) ([]byte, error) {
+	return c.do(ctx, method, path, query, nil, true)
+}
+
+// truncateForLog bounds response bodies before they reach the log file
+// (a reverse proxy's 502 page can be arbitrarily large)
+func truncateForLog(body []byte) string {
+	const max = 512
+	if len(body) > max {
+		return string(body[:max]) + "...(truncated)"
+	}
+	return string(body)
 }
 
 // GetLibraries returns all available libraries (Views)
@@ -264,6 +285,38 @@ func (c *Client) GetMixedContent(ctx context.Context, libID string, offset, limi
 	return items, resp.TotalRecordCount, nil
 }
 
+// GetLibraryItemCount returns the total item count for a library without
+// fetching the items. Limit=1 keeps the response tiny while still populating
+// TotalRecordCount.
+func (c *Client) GetLibraryItemCount(ctx context.Context, libID, libType string) (int, error) {
+	query := url.Values{}
+	query.Set("ParentId", libID)
+	switch libType {
+	case "movie":
+		query.Set("IncludeItemTypes", "Movie")
+	case "show":
+		query.Set("IncludeItemTypes", "Series")
+	default: // mixed
+		query.Set("IncludeItemTypes", "Movie,Series")
+	}
+	query.Set("Recursive", "true")
+	query.Set("Limit", "1")
+	query.Set("EnableTotalRecordCount", "true")
+
+	path := fmt.Sprintf("/Users/%s/Items", c.userID)
+	body, err := c.doRequest(ctx, http.MethodGet, path, query)
+	if err != nil {
+		return 0, err
+	}
+
+	var resp ItemsResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return 0, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	return resp.TotalRecordCount, nil
+}
+
 // GetSeasons returns all seasons for a TV show
 func (c *Client) GetSeasons(ctx context.Context, showID string) ([]*domain.Season, error) {
 	query := url.Values{}
@@ -283,28 +336,17 @@ func (c *Client) GetSeasons(ctx context.Context, showID string) ([]*domain.Seaso
 	return MapSeasons(resp.Items, c.baseURL), nil
 }
 
-// GetEpisodes returns all episodes for a season
+// GetEpisodes returns all episodes for a season.
+// Queried by ParentId directly — no need for the extra round-trip that
+// looked up the season's series ID first.
 func (c *Client) GetEpisodes(ctx context.Context, seasonID string) ([]*domain.MediaItem, error) {
-	// First, get the season to find the show ID
-	seasonPath := fmt.Sprintf("/Users/%s/Items/%s", c.userID, seasonID)
-	seasonBody, err := c.doRequest(ctx, http.MethodGet, seasonPath, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var season Item
-	if err := json.Unmarshal(seasonBody, &season); err != nil {
-		return nil, fmt.Errorf("failed to parse season: %w", err)
-	}
-
-	// Get episodes for this season
 	query := url.Values{}
-	query.Set("SeasonId", seasonID)
+	query.Set("ParentId", seasonID)
 	query.Set("Fields", "Overview,MediaSources,MediaStreams,DateCreated")
 	query.Set("SortBy", "IndexNumber")
 	query.Set("SortOrder", "Ascending")
 
-	path := fmt.Sprintf("/Shows/%s/Episodes", season.SeriesID)
+	path := fmt.Sprintf("/Users/%s/Items", c.userID)
 	body, err := c.doRequest(ctx, http.MethodGet, path, query)
 	if err != nil {
 		return nil, err
@@ -527,50 +569,29 @@ func (c *Client) GetNextUp(ctx context.Context, showID string) (*domain.MediaIte
 // MarkPlayed marks an item as fully watched
 func (c *Client) MarkPlayed(ctx context.Context, itemID string) error {
 	path := fmt.Sprintf("/Users/%s/PlayedItems/%s", c.userID, itemID)
-	_, err := c.doRequest(ctx, http.MethodPost, path, nil)
-	return err
+	if _, err := c.do(ctx, http.MethodPost, path, nil, nil, false); err != nil {
+		return fmt.Errorf("failed to mark as played: %w", err)
+	}
+	return nil
 }
 
 // MarkUnplayed marks an item as unwatched
 func (c *Client) MarkUnplayed(ctx context.Context, itemID string) error {
 	path := fmt.Sprintf("/Users/%s/PlayedItems/%s", c.userID, itemID)
-	_, err := c.doRequest(ctx, http.MethodDelete, path, nil)
-	return err
+	if _, err := c.do(ctx, http.MethodDelete, path, nil, nil, false); err != nil {
+		return fmt.Errorf("failed to mark as unplayed: %w", err)
+	}
+	return nil
 }
 
-// UpdateProgress reports the current playback position to the server
+// UpdateProgress reports the current playback position to the server.
 func (c *Client) UpdateProgress(ctx context.Context, itemID string, positionMs int64) error {
-	c.logger.Info("saving timestamp to jellyfin", "itemID", itemID, "positionMs", positionMs)
 	payload := map[string]interface{}{
-		"ItemId":        itemID,
-		"PositionTicks": positionMs * 10000, // ms -> Jellyfin ticks (100ns units)
+		"ItemId": itemID, "PositionTicks": positionMs * 10000,
 	}
-
-	bodyBytes, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("failed to marshal progress: %w", err)
+	if _, err := c.do(ctx, http.MethodPost, "/Sessions/Playing/Progress", nil, payload, false); err != nil {
+		return fmt.Errorf("failed to report progress: %w", err)
 	}
-
-	path := "/Sessions/Playing/Progress"
-	reqURL := c.baseURL + path
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, strings.NewReader(string(bodyBytes)))
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Emby-Authorization", buildAuthHeader(c.token, c.deviceID))
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return domain.ErrServerOffline
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("failed to report progress: status %d", resp.StatusCode)
-	}
-
 	return nil
 }
 
@@ -645,33 +666,9 @@ func (c *Client) CreatePlaylist(ctx context.Context, title string, itemIDs []str
 		reqBody["Ids"] = itemIDs
 	}
 
-	bodyBytes, err := json.Marshal(reqBody)
+	respBody, err := c.do(ctx, http.MethodPost, "/Playlists", nil, reqBody, false)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/Playlists",
-		strings.NewReader(string(bodyBytes)))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Emby-Authorization", buildAuthHeader(c.token, c.deviceID))
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, domain.ErrServerOffline
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("failed to create playlist: status %d - %s", resp.StatusCode, string(respBody))
+		return nil, fmt.Errorf("failed to create playlist: %w", err)
 	}
 
 	// Parse the response to get the created playlist
@@ -701,76 +698,70 @@ func (c *Client) AddToPlaylist(ctx context.Context, playlistID string, itemIDs [
 	query.Set("Ids", strings.Join(itemIDs, ","))
 	query.Set("UserId", c.userID)
 
-	path := fmt.Sprintf("/Playlists/%s/Items?%s", playlistID, query.Encode())
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+	path := fmt.Sprintf("/Playlists/%s/Items", playlistID)
+	if _, err := c.do(ctx, http.MethodPost, path, query, nil, false); err != nil {
+		return fmt.Errorf("failed to add items to playlist: %w", err)
 	}
-
-	req.Header.Set("X-Emby-Authorization", buildAuthHeader(c.token, c.deviceID))
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return domain.ErrServerOffline
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("failed to add items to playlist: status %d", resp.StatusCode)
-	}
-
 	return nil
 }
 
-// RemoveFromPlaylist removes an item from a playlist
+// RemoveFromPlaylist removes an item from a playlist.
+// Jellyfin's EntryIds parameter takes the playlist-specific entry ID
+// (PlaylistItemId), not the media item's ID — passing an item ID is silently
+// ignored (204 with no change). Resolve the entry ID first.
 func (c *Client) RemoveFromPlaylist(ctx context.Context, playlistID string, itemID string) error {
+	entryID, err := c.resolvePlaylistEntryID(ctx, playlistID, itemID)
+	if err != nil {
+		return err
+	}
+
 	query := url.Values{}
-	query.Set("EntryIds", itemID)
+	query.Set("EntryIds", entryID)
 
-	path := fmt.Sprintf("/Playlists/%s/Items?%s", playlistID, query.Encode())
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.baseURL+path, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+	path := fmt.Sprintf("/Playlists/%s/Items", playlistID)
+	if _, err := c.do(ctx, http.MethodDelete, path, query, nil, false); err != nil {
+		return fmt.Errorf("failed to remove item from playlist: %w", err)
 	}
-
-	req.Header.Set("X-Emby-Authorization", buildAuthHeader(c.token, c.deviceID))
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return domain.ErrServerOffline
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("failed to remove item from playlist: status %d", resp.StatusCode)
-	}
-
 	return nil
+}
+
+// resolvePlaylistEntryID fetches the playlist's items and returns the
+// playlist entry ID (PlaylistItemId) for the given media item ID.
+func (c *Client) resolvePlaylistEntryID(ctx context.Context, playlistID, itemID string) (string, error) {
+	query := url.Values{}
+	query.Set("UserId", c.userID)
+
+	path := fmt.Sprintf("/Playlists/%s/Items", playlistID)
+	body, err := c.doRequest(ctx, http.MethodGet, path, query)
+	if err != nil {
+		return "", err
+	}
+
+	var resp ItemsResponse
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return "", fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	for _, item := range resp.Items {
+		if item.ID == itemID {
+			if item.PlaylistItemID != "" {
+				return item.PlaylistItemID, nil
+			}
+			// Very old servers predate PlaylistItemId; fall back to the
+			// item ID, which those versions accepted
+			return itemID, nil
+		}
+	}
+
+	return "", fmt.Errorf("item %s not found in playlist %s", itemID, playlistID)
 }
 
 // DeletePlaylist deletes a playlist
 func (c *Client) DeletePlaylist(ctx context.Context, playlistID string) error {
 	path := fmt.Sprintf("/Items/%s", playlistID)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.baseURL+path, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+	if _, err := c.do(ctx, http.MethodDelete, path, nil, nil, false); err != nil {
+		return fmt.Errorf("failed to delete playlist: %w", err)
 	}
-
-	req.Header.Set("X-Emby-Authorization", buildAuthHeader(c.token, c.deviceID))
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return domain.ErrServerOffline
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("failed to delete playlist: status %d", resp.StatusCode)
-	}
-
 	return nil
 }
 

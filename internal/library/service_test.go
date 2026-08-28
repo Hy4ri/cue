@@ -2,6 +2,7 @@ package library
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"testing"
 
@@ -18,8 +19,11 @@ type fakeLibraryClient struct {
 	episodes      []*domain.MediaItem
 	episodesMap   map[string][]*domain.MediaItem // seasonID -> episodes
 	continueItems []*domain.MediaItem
+	itemCount     int
+	countErr      error
 	libraryCalls  int
 	movieCalls    int
+	countCalls    int
 }
 
 func (f *fakeLibraryClient) GetLibraries(context.Context) ([]domain.Library, error) {
@@ -61,8 +65,13 @@ func (f *fakeLibraryClient) GetContinueWatching(context.Context) ([]*domain.Medi
 	return f.continueItems, nil
 }
 
+func (f *fakeLibraryClient) GetLibraryItemCount(context.Context, string, string) (int, error) {
+	f.countCalls++
+	return f.itemCount, f.countErr
+}
+
 func TestFetchLibrariesSavesToStore(t *testing.T) {
-	st, _ := store.NewLibraryStore("", "")
+	st, _ := store.NewLibraryStore("", "", "")
 	client := &fakeLibraryClient{libs: []domain.Library{{ID: "lib", Name: "Movies", Type: "movie"}}}
 	svc := NewService(client, st, slog.Default())
 
@@ -80,11 +89,11 @@ func TestFetchLibrariesSavesToStore(t *testing.T) {
 }
 
 func TestSyncLibraryUsesFreshCache(t *testing.T) {
-	st, _ := store.NewLibraryStore("", "")
+	st, _ := store.NewLibraryStore("", "", "")
 	if err := st.SaveMovies("lib", []*domain.MediaItem{{ID: "cached"}}, 100); err != nil {
 		t.Fatal(err)
 	}
-	client := &fakeLibraryClient{}
+	client := &fakeLibraryClient{itemCount: 1}
 	svc := NewService(client, st, slog.Default())
 
 	result, err := svc.SyncLibrary(context.Background(), domain.Library{ID: "lib", Type: "movie", UpdatedAt: 50}, nil)
@@ -96,8 +105,45 @@ func TestSyncLibraryUsesFreshCache(t *testing.T) {
 	}
 }
 
+func TestSyncLibraryRefetchesWhenServerCountChanges(t *testing.T) {
+	st, _ := store.NewLibraryStore("", "", "")
+	if err := st.SaveMovies("lib", []*domain.MediaItem{{ID: "cached"}}, 100); err != nil {
+		t.Fatal(err)
+	}
+	client := &fakeLibraryClient{
+		itemCount:  2,
+		moviePages: [][]*domain.MediaItem{{{ID: "cached"}, {ID: "new"}}},
+	}
+	svc := NewService(client, st, slog.Default())
+
+	result, err := svc.SyncLibrary(context.Background(), domain.Library{ID: "lib", Type: "movie", UpdatedAt: 50}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.FromCache || result.Count != 2 || client.movieCalls != 1 {
+		t.Fatalf("result=%#v fetch calls=%d", result, client.movieCalls)
+	}
+}
+
+func TestSyncLibraryRetainsCacheWhenCountValidationFails(t *testing.T) {
+	st, _ := store.NewLibraryStore("", "", "")
+	if err := st.SaveMovies("lib", []*domain.MediaItem{{ID: "cached"}}, 100); err != nil {
+		t.Fatal(err)
+	}
+	client := &fakeLibraryClient{countErr: errors.New("offline")}
+	svc := NewService(client, st, slog.Default())
+
+	result, err := svc.SyncLibrary(context.Background(), domain.Library{ID: "lib", Type: "movie", UpdatedAt: 50}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.FromCache || result.Count != 1 || client.movieCalls != 0 {
+		t.Fatalf("result=%#v fetch calls=%d", result, client.movieCalls)
+	}
+}
+
 func TestFetchMoviesPaginatesAndReportsProgress(t *testing.T) {
-	st, _ := store.NewLibraryStore("", "")
+	st, _ := store.NewLibraryStore("", "", "")
 	client := &fakeLibraryClient{moviePages: [][]*domain.MediaItem{
 		{{ID: "1"}},
 		{{ID: "2"}},
@@ -106,7 +152,7 @@ func TestFetchMoviesPaginatesAndReportsProgress(t *testing.T) {
 	svc := NewService(client, st, slog.Default())
 	var progress []int
 
-	movies, err := svc.FetchMovies(context.Background(), "lib", func(loaded, total int) {
+	movies, err := svc.FetchMovies(context.Background(), "lib", 0, func(loaded, total int) {
 		progress = append(progress, loaded)
 	})
 	if err != nil {
@@ -121,7 +167,7 @@ func TestFetchMoviesPaginatesAndReportsProgress(t *testing.T) {
 }
 
 func TestFetchContinueWatching(t *testing.T) {
-	st, _ := store.NewLibraryStore("", "")
+	st, _ := store.NewLibraryStore("", "", "")
 	expected := []*domain.MediaItem{{ID: "1", Title: "In Progress"}}
 	client := &fakeLibraryClient{continueItems: expected}
 	svc := NewService(client, st, slog.Default())
@@ -132,6 +178,46 @@ func TestFetchContinueWatching(t *testing.T) {
 	}
 	if len(items) != 1 || items[0].Title != "In Progress" {
 		t.Fatalf("unexpected items: %#v", items)
+	}
+}
+
+func TestFetchAllDeduplicatesPages(t *testing.T) {
+	pages := [][]*domain.MediaItem{
+		{{ID: "a"}, {ID: "b"}},
+		{{ID: "b"}, {ID: "c"}},
+	}
+	items, err := fetchAll(context.Background(), func(_ context.Context, offset, limit int) ([]*domain.MediaItem, int, error) {
+		index := offset / limit
+		if index >= len(pages) {
+			return nil, 4, nil
+		}
+		return pages[index], 4, nil
+	}, 2, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 3 {
+		t.Fatalf("deduplicated item count = %d, want 3", len(items))
+	}
+}
+
+func TestFetchAllContinuesWhenTotalIsZero(t *testing.T) {
+	pages := [][]*domain.MediaItem{
+		{{ID: "a"}, {ID: "b"}},
+		{{ID: "c"}},
+	}
+	items, err := fetchAll(context.Background(), func(_ context.Context, offset, limit int) ([]*domain.MediaItem, int, error) {
+		index := offset / limit
+		if index >= len(pages) {
+			return nil, 0, nil
+		}
+		return pages[index], 0, nil
+	}, 2, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 3 {
+		t.Fatalf("item count = %d, want 3", len(items))
 	}
 }
 

@@ -3,7 +3,6 @@ package library
 import (
 	"context"
 	"log/slog"
-	"time"
 
 	"github.com/SuperCoolPencil/cue/internal/domain"
 )
@@ -43,11 +42,23 @@ func (s *Service) SyncLibrary(
 	lib domain.Library,
 	onProgress domain.ProgressFunc,
 ) (domain.SyncResult, error) {
-	// 1. Freshness check
+	// 1. Freshness check. The library timestamp alone is not enough: servers
+	// don't reliably bump it when items are added (Jellyfin's Views only
+	// expose the library's creation date), so also verify the item count
+	// with a cheap metadata-only request.
 	if s.store.IsValid(lib.ID, lib.UpdatedAt) {
 		count := s.getCachedCount(lib)
-		s.logger.Debug("cache fresh", "libID", lib.ID, "count", count)
-		return domain.SyncResult{LibraryID: lib.ID, FromCache: true, Count: count}, nil
+		serverCount, err := s.client.GetLibraryItemCount(ctx, lib.ID, lib.Type)
+		if err != nil {
+			// Can't verify; serve cache rather than fail or refetch blindly
+			s.logger.Warn("item count check failed, serving cache", "libID", lib.ID, "error", err)
+			return domain.SyncResult{LibraryID: lib.ID, FromCache: true, Count: count}, nil
+		}
+		if serverCount == count {
+			s.logger.Debug("cache fresh", "libID", lib.ID, "count", count)
+			return domain.SyncResult{LibraryID: lib.ID, FromCache: true, Count: count}, nil
+		}
+		s.logger.Debug("item count changed", "libID", lib.ID, "cached", count, "server", serverCount)
 	}
 
 	// 2. Fetch based on library type
@@ -86,16 +97,23 @@ func (s *Service) SyncLibrary(
 	}
 }
 
+// Fetch* fetch a library's full content and cache it. serverTS is the
+// library's UpdatedAt as known to the caller: the cache timestamp must hold
+// the server's library version, never the local clock — a local timestamp
+// compares as "newer than the server" forever and permanently disables
+// timestamp invalidation.
+
 func (s *Service) FetchMovies(
 	ctx context.Context,
 	libID string,
+	serverTS int64,
 	onProgress domain.ProgressFunc,
 ) ([]*domain.MediaItem, error) {
 	movies, err := s.fetchMoviesWithProgress(ctx, libID, onProgress)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.store.SaveMovies(libID, movies, time.Now().Unix()); err != nil {
+	if err := s.store.SaveMovies(libID, movies, serverTS); err != nil {
 		s.logger.Error("failed to save movies", "error", err, "libID", libID)
 	}
 	s.logger.Debug("fetched movies", "count", len(movies), "libID", libID)
@@ -105,13 +123,14 @@ func (s *Service) FetchMovies(
 func (s *Service) FetchShows(
 	ctx context.Context,
 	libID string,
+	serverTS int64,
 	onProgress domain.ProgressFunc,
 ) ([]*domain.Show, error) {
 	shows, err := s.fetchShowsWithProgress(ctx, libID, onProgress)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.store.SaveShows(libID, shows, time.Now().Unix()); err != nil {
+	if err := s.store.SaveShows(libID, shows, serverTS); err != nil {
 		s.logger.Error("failed to save shows", "error", err, "libID", libID)
 	}
 	s.logger.Debug("fetched shows", "count", len(shows), "libID", libID)
@@ -121,13 +140,14 @@ func (s *Service) FetchShows(
 func (s *Service) FetchMixedContent(
 	ctx context.Context,
 	libID string,
+	serverTS int64,
 	onProgress domain.ProgressFunc,
 ) ([]domain.ListItem, error) {
 	items, err := s.fetchMixedWithProgress(ctx, libID, onProgress)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.store.SaveMixedContent(libID, items, time.Now().Unix()); err != nil {
+	if err := s.store.SaveMixedContent(libID, items, serverTS); err != nil {
 		s.logger.Error("failed to save mixed content", "error", err, "libID", libID)
 	}
 	s.logger.Debug("fetched mixed content", "count", len(items), "libID", libID)
@@ -178,6 +198,13 @@ func (s *Service) FetchContinueWatching(ctx context.Context) ([]*domain.MediaIte
 	}
 	s.logger.Debug("fetched continue watching", "count", len(items))
 	return items, nil
+}
+
+// SetWatchState patches the cached watch state for an item in place,
+// avoiding cache invalidation. The next sync reconciles with the server.
+func (s *Service) SetWatchState(itemID string, played bool) {
+	s.store.SetWatchState(itemID, played)
+	s.logger.Debug("patched cached watch state", "itemID", itemID, "played", played)
 }
 
 func (s *Service) InvalidateLibrary(libID string) {
@@ -262,8 +289,12 @@ func (s *Service) fetchMixedWithProgress(
 	)
 }
 
-// fetchAll is a generic pagination helper.
-func fetchAll[T any](
+// fetchAll is a generic pagination helper. Items are deduplicated by ID:
+// offset pagination under concurrent server-side mutation can shift pages
+// and repeat items, and duplicates would otherwise be cached as truth. An
+// empty page always terminates, so a server reporting total=0 alongside a
+// non-empty page still gets fully paginated rather than truncated.
+func fetchAll[T domain.ListItem](
 	ctx context.Context,
 	fetch func(ctx context.Context, offset, limit int) ([]T, int, error),
 	chunkSize int,
@@ -274,6 +305,7 @@ func fetchAll[T any](
 	}
 
 	var all []T
+	seen := make(map[string]bool)
 	offset := 0
 
 	for {
@@ -288,13 +320,20 @@ func fetchAll[T any](
 			return nil, err
 		}
 
-		all = append(all, items...)
+		for _, item := range items {
+			id := item.GetID()
+			if id != "" && seen[id] {
+				continue
+			}
+			seen[id] = true
+			all = append(all, item)
+		}
 
 		if onProgress != nil {
 			onProgress(len(all), total)
 		}
 
-		if len(all) >= total || len(items) == 0 {
+		if len(items) == 0 || (total > 0 && len(all) >= total) {
 			break
 		}
 		offset += chunkSize

@@ -48,6 +48,7 @@ type ListColumn struct {
 
 	// Loading state
 	loading      bool
+	refreshing   bool // background refresh in progress; items stay visible
 	spinnerFrame int
 
 	// Library sync states (for library column)
@@ -331,6 +332,16 @@ func (c *ListColumn) IsLoading() bool {
 }
 
 // SetItems updates the items in the column and preserves selection if possible
+// SetRefreshing marks a background refresh: items remain visible and
+// navigable, with a spinner shown next to the column title.
+func (c *ListColumn) SetRefreshing(refreshing bool) {
+	c.refreshing = refreshing
+}
+
+func (c *ListColumn) IsRefreshing() bool {
+	return c.refreshing
+}
+
 func (c *ListColumn) SetItems(rawItems interface{}) {
 	c.loading = false
 
@@ -346,23 +357,35 @@ func (c *ListColumn) SetItems(rawItems interface{}) {
 	c.clearFilter()
 	c.sortedIdx = nil
 
+	if rawItems == nil {
+		c.items = nil
+		c.sortField = SortDefault
+		c.sortDir = SortAsc
+		return
+	}
+
 	switch v := rawItems.(type) {
 	case []domain.Library:
 		c.items = WrapLibraries(v)
 		c.columnType = ColumnTypeLibraries
 	case []*domain.MediaItem:
-		// Could be movies, episodes, or playlist items - preserve column type if already set.
-		if c.columnType == ColumnTypePlaylistItems {
+		// Could be movies, episodes, or playlist items. An already-typed
+		// column keeps its identity — an empty episode list must not turn
+		// the column into a movies column.
+		switch {
+		case c.columnType == ColumnTypePlaylistItems:
 			c.items = WrapPlaylistItems(v)
-		} else if mediaItemsAreMixed(v) {
+		case c.columnType == ColumnTypeEpisodes:
+			c.items = WrapEpisodes(v)
+		case mediaItemsAreMixed(v):
 			// Continue Watching can contain both movies and episodes. Keep it mixed
 			// instead of selecting a renderer based solely on the first item.
 			c.items = WrapMovies(v)
 			c.columnType = ColumnTypeMixed
-		} else if len(v) > 0 && v[0].Type == domain.MediaTypeEpisode {
+		case len(v) > 0 && v[0].Type == domain.MediaTypeEpisode:
 			c.items = WrapEpisodes(v)
 			c.columnType = ColumnTypeEpisodes
-		} else {
+		default:
 			c.items = WrapMovies(v)
 			c.columnType = ColumnTypeMovies
 		}
@@ -435,6 +458,97 @@ func (c *ListColumn) SetItems(rawItems interface{}) {
 	}
 
 	c.ensureVisible()
+}
+
+// ReplaceItems swaps the column's content while preserving the user's view
+// state: cursor (matched by item ID), sort, and filter all survive the swap.
+// Background refreshes use this so the list doesn't jump; on a column with no
+// prior content it behaves exactly like SetItems.
+func (c *ListColumn) ReplaceItems(rawItems interface{}) {
+	c.refreshing = false
+
+	if len(c.items) == 0 {
+		c.SetItems(rawItems)
+		return
+	}
+
+	// Capture view state
+	var selectedID string
+	if idx := c.mapIndex(c.cursor); c.cursor < c.ItemCount() && idx < len(c.items) {
+		selectedID = c.items[idx].GetID()
+	}
+	prevCursor := c.cursor
+	sortField, sortDir := c.sortField, c.sortDir
+	filterActive := c.filterActive
+	filterQuery := c.filterInput.Value()
+	filterTyping := c.filterInput.Focused()
+
+	c.SetItems(rawItems)
+
+	// Restore sort
+	if c.columnSortable() && sortField != SortDefault {
+		c.sortField = sortField
+		c.sortDir = sortDir
+		c.buildSortedIdx()
+	}
+
+	// Restore filter
+	if filterActive {
+		c.filterActive = true
+		c.filterInput.SetValue(filterQuery)
+		if filterTyping {
+			c.filterInput.Focus()
+		}
+		c.recalcMaxVisible()
+		c.applyFilter()
+	}
+
+	// Restore cursor: by ID first, clamped index as fallback
+	if selectedID == "" || !c.SetSelectedByID(selectedID) {
+		c.SetSelectedIndex(prevCursor)
+	}
+}
+
+// ApplyWatchState patches a media item's watch state in this column's items.
+// Returns the patched item (nil if not present) and whether the played flag
+// actually changed.
+func (c *ListColumn) ApplyWatchState(itemID string, played bool) (*domain.MediaItem, bool) {
+	for _, item := range c.items {
+		if m, ok := item.(*domain.MediaItem); ok && m.ID == itemID {
+			flipped := m.IsPlayed != played
+			m.IsPlayed = played
+			m.ViewOffset = 0
+			return m, flipped
+		}
+	}
+	return nil, false
+}
+
+// AdjustUnwatchedCounts shifts the unwatched counter on matching show and
+// season rows (used when an episode's watch state is toggled in place).
+func (c *ListColumn) AdjustUnwatchedCounts(showID, seasonID string, delta int) {
+	for _, item := range c.items {
+		switch v := item.(type) {
+		case *domain.Show:
+			if v.ID == showID {
+				v.UnwatchedCount = clampUnwatched(v.UnwatchedCount+delta, v.EpisodeCount)
+			}
+		case *domain.Season:
+			if v.ID == seasonID {
+				v.UnwatchedCount = clampUnwatched(v.UnwatchedCount+delta, v.EpisodeCount)
+			}
+		}
+	}
+}
+
+func clampUnwatched(n, max int) int {
+	if n < 0 {
+		return 0
+	}
+	if max > 0 && n > max {
+		return max
+	}
+	return n
 }
 
 // Additional methods
@@ -896,8 +1010,13 @@ func (c *ListColumn) renderContent() string {
 		itemWidth = 10
 	}
 
-	// Title line (styled, truncated to fit column width)
-	titleLine := styles.AccentStyle.Render(styles.Truncate(c.title, itemWidth))
+	// Title line (styled, truncated to fit column width); background
+	// refreshes show a spinner next to the title while items stay visible
+	title := c.title
+	if c.refreshing {
+		title = c.title + " " + styles.SpinnerFrames[c.spinnerFrame%len(styles.SpinnerFrames)]
+	}
+	titleLine := styles.AccentStyle.Render(styles.Truncate(title, itemWidth))
 
 	// Loading state
 	if c.loading {
