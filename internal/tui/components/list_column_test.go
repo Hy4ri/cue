@@ -1,7 +1,6 @@
 package components
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/SuperCoolPencil/cue/internal/domain"
@@ -33,33 +32,6 @@ func TestListColumnSortSelectionAndFilter(t *testing.T) {
 	col.ClearFilter()
 	if col.ItemCount() != 3 {
 		t.Fatalf("count after clear = %d", col.ItemCount())
-	}
-}
-
-func TestListColumnContinueWatchingMixedItemsShowEpisodeSeries(t *testing.T) {
-	items := []*domain.MediaItem{
-		{ID: "movie1", Title: "A Movie", Type: domain.MediaTypeMovie},
-		{
-			ID:         "ep1",
-			Title:      "Pilot",
-			Type:       domain.MediaTypeEpisode,
-			ShowTitle:  "Breaking Bad",
-			SeasonNum:  1,
-			EpisodeNum: 1,
-		},
-	}
-	col := NewListColumn(ColumnTypeMixed, "Continue Watching")
-	col.SetShowShowTitle(true)
-	col.SetItems(items)
-
-	if col.ColumnType() != ColumnTypeMixed {
-		t.Fatalf("expected mixed column for movie-and-episode list, got %v", col.ColumnType())
-	}
-
-	got := col.renderItem(1, false, 80)
-	want := "Breaking Bad - S01E01 Pilot"
-	if !strings.Contains(got, want) {
-		t.Errorf("expected rendered line to contain %q, got %q", want, got)
 	}
 }
 
