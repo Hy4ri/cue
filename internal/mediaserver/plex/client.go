@@ -126,6 +126,9 @@ func (c *Client) doRequest(ctx context.Context, method, path string, query url.V
 	req.Header.Set("X-Plex-Client-Identifier", c.clientID)
 	req.Header.Set("X-Plex-Product", "Cue")
 	req.Header.Set("X-Plex-Version", "1.0")
+	req.Header.Set("X-Plex-Device-Name", c.deviceName)
+	req.Header.Set("X-Plex-Device", runtime.GOOS)
+	req.Header.Set("X-Plex-Platform", runtime.GOOS)
 	req.Header.Set("User-Agent", userAgent)
 
 	c.logger.Debug("plex request", "method", method, "url", reqURL)

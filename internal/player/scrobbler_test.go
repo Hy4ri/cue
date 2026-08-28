@@ -390,4 +390,11 @@ func TestScrobblerTimelineResumeAndSeek(t *testing.T) {
 
 	cancel()
 	<-handle.ResultCh
+
+	// The terminal state must be sent after all queued playback updates so a
+	// delayed playing event cannot recreate the session after playback exits.
+	timelines := client.GetTimelines()
+	if len(timelines) == 0 || timelines[len(timelines)-1].State != "stopped" {
+		t.Errorf("expected final timeline state to be stopped, got: %+v", timelines)
+	}
 }
