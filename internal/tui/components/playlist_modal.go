@@ -247,11 +247,12 @@ func (m *PlaylistModal) HandleMouse(msg tea.MouseMsg, screenW, screenH int) (*Pl
 				m.cursor = itemIdx
 				return m, true, false
 			}
-			if itemIdx == len(m.playlists) {
+			// A blank line separates the playlists from the create option.
+			if itemIdx == len(m.playlists)+1 {
 				// "Create new" option
 				m.createMode = true
 				m.newTitle.Focus()
-				m.cursor = itemIdx
+				m.cursor = len(m.playlists)
 				return m, true, false
 			}
 			return m, true, false

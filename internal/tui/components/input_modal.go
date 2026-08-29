@@ -81,9 +81,9 @@ func (m InputModal) HandleMouse(msg tea.MouseMsg, screenW, screenH int) (InputMo
 		return m, false, false
 	}
 
-	// Approximate modal dimensions: ~36 chars wide, ~6 lines tall
-	const modalWidth = 36
-	modalHeight := 6 // title(1) + spacer(1) + input(1) + padding(2) + border(2)
+	// Content is 36 wide; Padding(1,2) adds 4 columns and 2 rows, border adds 2 of each.
+	const modalWidth = 36 + 4 + 2
+	modalHeight := 3 + 2 + 2 // title(1) + spacer(1) + input(1) + padding(2) + border(2)
 	if modalHeight > screenH {
 		modalHeight = screenH
 	}

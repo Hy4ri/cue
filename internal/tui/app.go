@@ -1008,22 +1008,19 @@ func (m Model) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		if sel != nil {
 			if top := m.ColumnStack.Top(); top != nil {
 				top.ApplySort(sel.Field, sel.Direction)
-				m.updateInspector()
+				if pc := m.updateInspector(); pc != nil {
+					cmds = append(cmds, pc)
+				}
 			}
 		}
-		return m, nil
+		return m, tea.Batch(cmds...)
 	}
 
 	// 3. PlaylistModal visible?
 	if m.PlaylistModal.IsVisible() {
-		var handled, dismissed bool
-		newModal, handled, dismissed := m.PlaylistModal.HandleMouse(msg, m.Width, m.Height)
-		m.PlaylistModal = *newModal
+		_, _, dismissed := m.PlaylistModal.HandleMouse(msg, m.Width, m.Height)
 		if dismissed {
 			m.PlaylistModal.Hide()
-		}
-		if handled {
-			return m, nil
 		}
 		return m, nil
 	}
@@ -1047,11 +1044,29 @@ func (m Model) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Compute the screen X position of the focused column
+	// Compute the screen X position of the focused column using only
+	// visible columns (View() renders only topIdx-2 … topIdx).
+	stackLen := m.ColumnStack.Len()
+	topIdx := stackLen - 1
+	layout := m.calculateColumnLayout(m.Width)
 	colScreenX := 0
-	for i := 0; i < m.ColumnStack.Len()-1; i++ {
-		if col := m.ColumnStack.Get(i); col != nil {
-			colScreenX += col.Width()
+	if stackLen == 2 {
+		colScreenX = layout.parentWidth
+	} else if stackLen >= 3 {
+		colScreenX = layout.grandparentWidth + layout.parentWidth
+	}
+	// Fallback if layout is zero (e.g., m.Width==0 during tests) — use
+	// the widths already set on the visible columns.
+	if m.Width == 0 {
+		colScreenX = 0
+		visibleStart := topIdx - 2
+		if visibleStart < 0 {
+			visibleStart = 0
+		}
+		for i := visibleStart; i < topIdx; i++ {
+			if c := m.ColumnStack.Get(i); c != nil {
+				colScreenX += c.Width()
+			}
 		}
 	}
 
@@ -1061,10 +1076,12 @@ func (m Model) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			newCol, changed := top.HandleMouse(msg, msg.Y-1)
 			if changed {
 				m.ColumnStack.UpdateTop(newCol)
-				m.updateInspector()
+				if pc := m.updateInspector(); pc != nil {
+					cmds = append(cmds, pc)
+				}
 			}
 		}
-		return m, nil
+		return m, tea.Batch(cmds...)
 	}
 
 	// Left click: check if inside the focused column's bounds
@@ -1076,46 +1093,85 @@ func (m Model) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 				relY = 0
 			}
 			newCol, changed := top.HandleMouse(msg, relY)
+			var effectiveTop *components.ListColumn
 			if changed {
 				m.ColumnStack.UpdateTop(newCol)
-				m.updateInspector()
+				effectiveTop = newCol
+				if pc := m.updateInspector(); pc != nil {
+					cmds = append(cmds, pc)
+				}
+			} else {
+				effectiveTop = top
 			}
-			// Double-click detection for column items — checks both item ID and cursor position.
-			// Cursor position is the fallback when item ID is unavailable (e.g., library column edge cases).
-			itemID := m.getSelectedItemID(top)
-			cursor := top.SelectedIndex()
-			idMatch := itemID != "" && itemID == m.lastClickID
-			cursorMatch := m.lastClickSource == "column" && m.lastClickCursor == cursor
-			if (idMatch || cursorMatch) && time.Since(m.lastClickTime) < 400*time.Millisecond {
-				// Double-click: drill in / play
-				m.lastClickID = ""
-				m.lastClickSource = ""
-				m.lastClickCursor = 0
-				return m.handleEnter()
+			// Double-click detection — only when click landed on an item row.
+			// HandleMouse returns false for title/header clicks, so we only
+			// track cursor/ID when changed==true to avoid triggering
+			// handleEnter() from title double-clicks.
+			if changed {
+				itemID := m.getSelectedItemID(effectiveTop)
+				cursor := effectiveTop.SelectedIndex()
+				idMatch := itemID != "" && itemID == m.lastClickID
+				cursorMatch := m.lastClickSource == "column" && m.lastClickCursor == cursor
+				if (idMatch || cursorMatch) && time.Since(m.lastClickTime) < 400*time.Millisecond {
+					// Double-click: drill in / play
+					m.lastClickID = ""
+					m.lastClickSource = ""
+					m.lastClickCursor = 0
+					enterModel, enterCmd := m.handleEnter()
+					if enterCmd != nil {
+						cmds = append(cmds, enterCmd)
+					}
+					// handleEnter returns a Model; propagate it
+					if em, ok := enterModel.(Model); ok {
+						m = em
+					}
+					return m, tea.Batch(cmds...)
+				}
+				// Single click: track for double-click detection
+				m.lastClickID = m.getSelectedItemID(effectiveTop)
+				m.lastClickCursor = effectiveTop.SelectedIndex()
+				m.lastClickTime = time.Now()
+				m.lastClickSource = "column"
 			}
-			// Single click: track for double-click detection
-			m.lastClickID = itemID
-			m.lastClickCursor = cursor
-			m.lastClickTime = time.Now()
-			m.lastClickSource = "column"
 		} else {
 			// Click is outside focused column — check if it's in a parent column (navigate back)
-			if m.ColumnStack.Len() > 1 {
+			if stackLen > 1 {
+				visibleStart := topIdx - 2
+				if visibleStart < 0 {
+					visibleStart = 0
+				}
+				// Map visible indices to screen X using layout widths
+				widths := map[int]int{}
+				if stackLen == 1 {
+					widths[0] = layout.activeWidth
+				} else if stackLen == 2 {
+					widths[0] = layout.parentWidth
+					widths[1] = layout.activeWidth
+				} else {
+					widths[topIdx-2] = layout.grandparentWidth
+					widths[topIdx-1] = layout.parentWidth
+					widths[topIdx] = layout.activeWidth
+				}
 				parentX := 0
-				for i := 0; i < m.ColumnStack.Len()-1; i++ {
-					col := m.ColumnStack.Get(i)
-					if col != nil && msg.X >= parentX && msg.X < parentX+col.Width() &&
+				for i := visibleStart; i < topIdx; i++ {
+					w := widths[i]
+					if w == 0 {
+						if c := m.ColumnStack.Get(i); c != nil {
+							w = c.Width()
+						}
+					}
+					if col := m.ColumnStack.Get(i); col != nil && msg.X >= parentX && msg.X < parentX+w &&
 						msg.Y >= 0 && msg.Y < col.Height() {
 						return m.handleBack()
 					}
-					parentX += col.Width()
+					parentX += w
 				}
 			}
 		}
-		return m, nil
+		return m, tea.Batch(cmds...)
 	}
 
-	return m, nil
+	return m, tea.Batch(cmds...)
 }
 
 // updateInspector updates the inspector with the selected item from middle column
