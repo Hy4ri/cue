@@ -17,8 +17,8 @@ import (
 
 // Layout constants for list columns
 const (
-	// Border adds 1 char on each side (left+right for width, top+bottom for height)
-	BorderWidth  = 2
+	// Frame includes the two border cells plus one cell of left padding.
+	BorderWidth  = 3
 	BorderHeight = 2
 
 	// Scroll indicators ("↑ more" and "↓ more") each take 1 line
@@ -225,7 +225,7 @@ func (c *ListColumn) View() string {
 	return style.
 		Width(c.width - frameW).
 		Height(c.height - frameH).
-		Render(content)
+		Render(styles.InsetLeft(content))
 }
 
 func (c *ListColumn) SetSize(width, height int) {
@@ -640,12 +640,22 @@ func (c *ListColumn) SelectedSeason() *domain.Season {
 // SelectedMediaItem returns the selected media item (if in movies/episodes/playlist items/mixed column)
 func (c *ListColumn) SelectedMediaItem() *domain.MediaItem {
 	switch c.columnType {
-	case ColumnTypeMovies, ColumnTypeEpisodes, ColumnTypePlaylistItems, ColumnTypeSeasonEpisodes:
+	case ColumnTypeMovies, ColumnTypeEpisodes, ColumnTypePlaylistItems:
 		item := c.SelectedItem()
 		if item == nil {
 			return nil
 		}
 		return item.(*domain.MediaItem)
+	case ColumnTypeSeasonEpisodes:
+		// Collapsible season+episode columns may have a season header selected.
+		item := c.SelectedItem()
+		if item == nil {
+			return nil
+		}
+		if mediaItem, ok := item.(*domain.MediaItem); ok {
+			return mediaItem
+		}
+		return nil
 	case ColumnTypeMixed:
 		// Mixed content can be either MediaItem (movie) or Show
 		item := c.SelectedItem()
