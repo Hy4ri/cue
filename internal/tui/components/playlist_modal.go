@@ -235,6 +235,10 @@ func (m *PlaylistModal) HandleMouse(msg tea.MouseMsg, screenW, screenH int) (*Pl
 		}
 		return m, true, false
 
+	case msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonRight:
+		m.Hide()
+		return m, true, true
+
 	case msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft:
 		if insideModal {
 			// Items start after border(1)+padding(1)+title(1)+blank(1) = modalY + 4

@@ -160,10 +160,11 @@ type Model struct {
 	Version   string
 
 	// Mouse double-click tracking
-	lastClickID     string    // ID of last clicked item for double-click detection
-	lastClickTime   time.Time // Time of last click
-	lastClickSource string    // "column" or "search"
-	lastClickCursor int       // Cursor position of the last click (fallback for item ID)
+	lastClickID        string    // ID of last clicked item for double-click detection
+	lastClickTime      time.Time // Time of last click
+	lastClickSource    string    // "column" or "search"
+	lastClickCursor    int       // Cursor position of the last click (fallback for item ID)
+	lastClickContentID string    // ContentID of column where last click occurred (for cursor fallback validation)
 
 	pendingPlayback    *domain.MediaItem
 	pendingPlaylist    []domain.MediaItem
@@ -978,23 +979,26 @@ func (m Model) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 	// 1. GlobalSearch visible?
 	if m.GlobalSearch.IsVisible() {
-		m.GlobalSearch, _, _ = m.GlobalSearch.HandleMouse(msg, m.Width, m.Height)
-		// Detect double-click on search results
-		if result := m.GlobalSearch.Selected(); result != nil {
-			itemID := fmt.Sprintf("%d-%s", result.Type, result.Title)
-			if itemID == m.lastClickID && m.lastClickSource == "search" && time.Since(m.lastClickTime) < 400*time.Millisecond {
-				// Double-click: navigate to the result
-				m.lastClickID = ""
-				m.lastClickSource = ""
-				m.GlobalSearch.Hide()
-				if navCmd := m.navigateToSearchResult(*result); navCmd != nil {
-					cmds = append(cmds, navCmd)
+		var resultClicked bool
+		m.GlobalSearch, _, resultClicked = m.GlobalSearch.HandleMouse(msg, m.Width, m.Height)
+		// Detect double-click only when click landed on a result row
+		if resultClicked {
+			if result := m.GlobalSearch.Selected(); result != nil {
+				itemID := fmt.Sprintf("%d-%s", result.Type, result.Title)
+				if itemID == m.lastClickID && m.lastClickSource == "search" && time.Since(m.lastClickTime) < 400*time.Millisecond {
+					// Double-click: navigate to the result
+					m.lastClickID = ""
+					m.lastClickSource = ""
+					m.GlobalSearch.Hide()
+					if navCmd := m.navigateToSearchResult(*result); navCmd != nil {
+						cmds = append(cmds, navCmd)
+					}
+				} else {
+					// Single click: just track it for double-click detection
+					m.lastClickID = itemID
+					m.lastClickTime = time.Now()
+					m.lastClickSource = "search"
 				}
-			} else {
-				// Single click: just track it for double-click detection
-				m.lastClickID = itemID
-				m.lastClickTime = time.Now()
-				m.lastClickSource = "search"
 			}
 		}
 		// Always consume the event when search is visible
@@ -1110,13 +1114,15 @@ func (m Model) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			if changed {
 				itemID := m.getSelectedItemID(effectiveTop)
 				cursor := effectiveTop.SelectedIndex()
+				contentID := effectiveTop.ContentID()
 				idMatch := itemID != "" && itemID == m.lastClickID
-				cursorMatch := m.lastClickSource == "column" && m.lastClickCursor == cursor
+				cursorMatch := m.lastClickSource == "column" && m.lastClickCursor == cursor && m.lastClickContentID == contentID
 				if (idMatch || cursorMatch) && time.Since(m.lastClickTime) < 400*time.Millisecond {
 					// Double-click: drill in / play
 					m.lastClickID = ""
 					m.lastClickSource = ""
 					m.lastClickCursor = 0
+					m.lastClickContentID = ""
 					enterModel, enterCmd := m.handleEnter()
 					if enterCmd != nil {
 						cmds = append(cmds, enterCmd)
@@ -1130,6 +1136,7 @@ func (m Model) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 				// Single click: track for double-click detection
 				m.lastClickID = m.getSelectedItemID(effectiveTop)
 				m.lastClickCursor = effectiveTop.SelectedIndex()
+				m.lastClickContentID = effectiveTop.ContentID()
 				m.lastClickTime = time.Now()
 				m.lastClickSource = "column"
 			}

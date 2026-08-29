@@ -108,6 +108,9 @@ func (m InputModal) HandleMouse(msg tea.MouseMsg, screenW, screenH int) (InputMo
 		}
 		// Inside modal: let textinput handle focus
 		return m, true, false
+	case msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonRight:
+		m.Hide()
+		return m, true, true
 	}
 
 	return m, false, false

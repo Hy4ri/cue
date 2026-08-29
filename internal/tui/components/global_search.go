@@ -165,10 +165,10 @@ func (o GlobalSearch) Update(msg tea.Msg) (GlobalSearch, tea.Cmd, bool) {
 
 // HandleMouse handles mouse input for the global search modal.
 // screenW, screenH are the terminal dimensions.
-// Returns (globalSearch, handled, selected) where:
+// Returns (globalSearch, handled, resultClicked) where:
 //
 //	handled = true if the mouse event was consumed (search remains open)
-//	selected = true if the user clicked a result and wants to navigate to it
+//	resultClicked = true if the click landed on a result row (for double-click gating)
 func (o GlobalSearch) HandleMouse(msg tea.MouseMsg, screenW, screenH int) (GlobalSearch, bool, bool) {
 	if !o.visible {
 		return o, false, false
@@ -240,7 +240,7 @@ func (o GlobalSearch) HandleMouse(msg tea.MouseMsg, screenW, screenH int) (Globa
 			resultIdx := msg.Y - firstResultLine
 			if resultIdx >= 0 && resultIdx < displayCount {
 				o.cursor = o.offset + resultIdx
-				return o, true, false // handled but not selected — let app detect double-click
+				return o, true, true // result row clicked — app gates double-click on this
 			}
 			// Let other areas (input field) pass through, but mark as handled
 			// so the outside-click dismiss doesn't trigger
