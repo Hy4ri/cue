@@ -984,7 +984,20 @@ func (m Model) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		// Detect double-click only when click landed on a result row
 		if resultClicked {
 			if result := m.GlobalSearch.Selected(); result != nil {
-				itemID := fmt.Sprintf("%d-%s", result.Type, result.Title)
+				// Use stable item + library identity to avoid collisions for
+				// identical titles/types in different libraries.
+				var itemID string
+				if result.Item != nil {
+					if libID := result.Item.GetLibraryID(); libID != "" {
+						itemID = libID + "/" + result.Item.GetID()
+					} else if result.LibraryID != "" {
+						itemID = result.LibraryID + "/" + result.Item.GetID()
+					} else {
+						itemID = result.Item.GetID()
+					}
+				} else {
+					itemID = fmt.Sprintf("%d-%s-%s", result.Type, result.Title, result.LibraryID)
+				}
 				if itemID == m.lastClickID && m.lastClickSource == "search" && time.Since(m.lastClickTime) < 400*time.Millisecond {
 					// Double-click: navigate to the result
 					m.lastClickID = ""
