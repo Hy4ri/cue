@@ -289,10 +289,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		libCol.SetShowWatchStatus(m.UIConfig.ShowWatchStatus)
 		libCol.SetShowLibraryCounts(m.UIConfig.ShowLibraryCounts)
 		m.Inspector.SetLibraryStates(m.LibraryStates)
+		pc := m.updateInspector()
 
 		// Start parallel sync of ALL libraries + playlists
 		m.Loading = true
 		return m, tea.Batch(
+			pc,
 			SyncAllLibrariesCmd(m.LibraryService, msg.Libraries, m.SyncGen),
 			SyncPlaylistsCmd(m.PlaylistService, playlistsLibraryID, m.SyncGen),
 		)

@@ -6,6 +6,7 @@ import (
 
 	"github.com/SuperCoolPencil/cue/internal/domain"
 	"github.com/SuperCoolPencil/cue/internal/tui/components"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestModelPropagateWatchStatus(t *testing.T) {
@@ -70,6 +71,32 @@ func TestRefreshLibrariesPreservesValidNavigationStack(t *testing.T) {
 	updated := model.(Model)
 	if updated.ColumnStack.Len() != 2 || updated.ColumnStack.Get(1) != content {
 		t.Fatal("refresh discarded valid deeper navigation")
+	}
+}
+
+func TestRefreshLibrariesBatchesPosterRefresh(t *testing.T) {
+	root := components.NewLibraryColumn([]domain.Library{{ID: "lib-1", Name: "Shows", Type: "show"}})
+	content := components.NewListColumn(components.ColumnTypeShows, "Shows")
+	content.SetItems([]*domain.Show{{ID: "show-1", ThumbURL: "https://media/poster"}})
+	stack := NewColumnStack()
+	stack.Push(root, 0)
+	stack.Push(content, 0)
+
+	m := Model{
+		ColumnStack:  stack,
+		Inspector:    components.NewInspector(),
+		MediaClient:  &posterClientStub{},
+		currentLibID: "lib-1",
+		Width:        100,
+		Height:       30,
+	}
+	_, cmd := m.Update(LibrariesLoadedMsg{
+		Libraries: []domain.Library{{ID: "lib-1", Name: "Shows", Type: "show"}},
+		Refresh:   true,
+	})
+	batch, ok := cmd().(tea.BatchMsg)
+	if !ok || len(batch) != 3 {
+		t.Fatalf("refresh command = %T with %d batched commands, want 3", batch, len(batch))
 	}
 }
 
