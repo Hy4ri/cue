@@ -44,9 +44,9 @@ func TestMarkWatchedUpdatesCachedAndVisibleState(t *testing.T) {
 }
 
 func TestPlaybackStatusTextIncludesEpisodeShowAndElapsedTime(t *testing.T) {
-	item := domain.MediaItem{Title: "Pilot", ShowTitle: "Example Show"}
+	item := domain.MediaItem{Title: "Pilot", ShowTitle: "Example Show", Type: domain.MediaTypeEpisode, SeasonNum: 1, EpisodeNum: 1, Duration: 90 * time.Minute}
 	got := playbackStatusText(item, 65*time.Minute)
-	if got != "Pilot - Example Show (01:05)" {
+	if got != "Example Show · S01E01 · Pilot · 01:05 / 01:30 · 72% · 25m left" {
 		t.Fatalf("playback status = %q", got)
 	}
 }

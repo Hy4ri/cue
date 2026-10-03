@@ -29,12 +29,42 @@ func playbackStatusText(item domain.MediaItem, position time.Duration) string {
 	if position < 0 {
 		position = 0
 	}
-	title := item.Title
+	parts := make([]string, 0, 6)
 	if item.ShowTitle != "" {
-		title += " - " + item.ShowTitle
+		parts = append(parts, item.ShowTitle)
 	}
-	totalMinutes := int64(position / time.Minute)
-	return fmt.Sprintf("%s (%02d:%02d)", title, totalMinutes/60, totalMinutes%60)
+	if code := item.EpisodeCode(); code != "" {
+		parts = append(parts, code)
+	}
+	if item.Title != "" {
+		parts = append(parts, item.Title)
+	}
+	parts = append(parts, formatPlaybackTime(position))
+
+	if item.Duration > 0 {
+		duration := item.Duration
+		if position > duration {
+			position = duration
+		}
+		remaining := duration - position
+		percent := float64(position) / float64(duration) * 100
+		parts[len(parts)-1] += " / " + formatPlaybackTime(duration)
+		parts = append(parts, fmt.Sprintf("%.0f%%", percent), formatRemainingPlaybackTime(remaining)+" left")
+	}
+
+	return strings.Join(parts, " · ")
+}
+
+func formatPlaybackTime(value time.Duration) string {
+	totalMinutes := int64(value / time.Minute)
+	return fmt.Sprintf("%02d:%02d", totalMinutes/60, totalMinutes%60)
+}
+
+func formatRemainingPlaybackTime(value time.Duration) string {
+	if value < time.Hour {
+		return fmt.Sprintf("%dm", int(value/time.Minute))
+	}
+	return fmt.Sprintf("%dh %02dm", int(value/time.Hour), int(value/time.Minute)%60)
 }
 
 // ApplicationState represents the current state of the application

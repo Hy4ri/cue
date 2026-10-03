@@ -284,14 +284,23 @@ func (m Model) renderSplitColumn(col *components.ListColumn, colWidth, listHeigh
 
 // renderFooter renders a single-line minimal footer
 func (m Model) renderFooter() string {
+	// Right side: "? help" hint. Define this before the now-playing text so
+	// the playback summary can use all remaining footer space.
+	right := styles.RenderKeyHint("?", "help")
+
 	// Left side: now-playing takes priority, then loading/status
 	var left string
 	if m.isPlayingTitle != "" {
 		// Pulsing indicator via spinner frame
 		frames := []string{"▶", "▷"}
 		icon := styles.AccentStyle().Render(frames[m.SpinnerFrame/5%len(frames)])
-		title := styles.Truncate(m.isPlayingTitle, 40)
-		left = icon + " " + styles.DimStyle().Render("Playing: "+title)
+		prefix := icon + " " + styles.DimStyle().Render("Playing: ")
+		titleWidth := 60
+		if m.Width > 0 {
+			titleWidth = max(0, m.Width-lipgloss.Width(right)-lipgloss.Width(prefix)-1)
+		}
+		title := styles.Truncate(m.isPlayingTitle, titleWidth)
+		left = prefix + styles.DimStyle().Render(title)
 	} else if m.Loading {
 		statusText := "Loading..."
 
@@ -336,6 +345,7 @@ func (m Model) renderFooter() string {
 	} else {
 		left = styles.RenderKeyHint("↑↓", "navigate") + "  " + styles.RenderKeyHint("←→", "back/expand")
 	}
+	left = " " + left
 
 	// Center section: context-specific hints based on column type
 	var center string
@@ -347,9 +357,6 @@ func (m Model) renderFooter() string {
 			center = styles.RenderKeyHint("x", "Remove")
 		}
 	}
-
-	// Right side: "? help" hint
-	right := styles.RenderKeyHint("?", "help")
 
 	// Layout: left + centered hints + right
 	leftWidth := lipgloss.Width(left)

@@ -15,6 +15,7 @@ import (
 type PlaybackHandle struct {
 	ResultCh <-chan ScrobbleResult
 	StatusCh <-chan PlaybackStatus
+	DoneCh   <-chan struct{}
 }
 
 // PlaybackStatus describes the currently active playlist item and position.
@@ -67,8 +68,10 @@ func (s *Scrobbler) Monitor(ctx context.Context, cmd *exec.Cmd, ipcSocket string
 
 	resCh := make(chan ScrobbleResult, 1)
 	statusCh := make(chan PlaybackStatus, 10)
+	doneCh := make(chan struct{})
 
 	go func() {
+		defer close(doneCh)
 		defer close(resCh)
 		defer removeMPVSocket(ipcSocket)
 		var wg sync.WaitGroup
@@ -350,6 +353,7 @@ func (s *Scrobbler) Monitor(ctx context.Context, cmd *exec.Cmd, ipcSocket string
 	return PlaybackHandle{
 		ResultCh: resCh,
 		StatusCh: statusCh,
+		DoneCh:   doneCh,
 	}
 }
 

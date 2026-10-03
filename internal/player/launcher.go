@@ -138,19 +138,23 @@ func NewLauncher(command string, args []string, seekFlag string, logger *slog.Lo
 
 // Launch opens one or more media URLs in the configured player or auto-detected player.
 func (l *Launcher) Launch(offset time.Duration, playlistStart int, media ...domain.PlayableMedia) (*exec.Cmd, string, error) {
+	return l.launch(offset, playlistStart, "", media...)
+}
+
+func (l *Launcher) launch(offset time.Duration, playlistStart int, settingsScript string, media ...domain.PlayableMedia) (*exec.Cmd, string, error) {
 	offsetSecs := int(offset.Seconds())
 
 	// Tier 1: User configured a specific player
 	if l.command != "" {
 		l.logger.Info("using configured player", "command", l.command)
-		return l.launchConfigured(offsetSecs, playlistStart, media...)
+		return l.launchConfigured(offsetSecs, playlistStart, settingsScript, media...)
 	}
 
 	// Tier 2: Auto-detect known players
 	if player, found := l.detectPlayer(); found {
 		l.logger.Info("auto-detected player", "binary", player.Definition.Binary,
 			"executable", player.Executable)
-		cmd, socket, err := l.execPlayer(player, offsetSecs, playlistStart, media...)
+		cmd, socket, err := l.execPlayer(player, offsetSecs, playlistStart, settingsScript, media...)
 		if err != nil {
 			// Do not pin a stale/broken executable for the rest of the process.
 			l.invalidateDetectedPlayer()
@@ -441,7 +445,7 @@ func uniqueNonEmpty(values ...string) []string {
 }
 
 // execPlayer launches the detected player with optional seek offset and playlist start
-func (l *Launcher) execPlayer(player ResolvedPlayer, offsetSecs int, playlistStart int, media ...domain.PlayableMedia) (*exec.Cmd, string, error) {
+func (l *Launcher) execPlayer(player ResolvedPlayer, offsetSecs int, playlistStart int, settingsScript string, media ...domain.PlayableMedia) (*exec.Cmd, string, error) {
 	definition := player.Definition
 	args := playerDefaultArgs(definition, offsetSecs)
 	var ipcSocket string
@@ -450,6 +454,9 @@ func (l *Launcher) execPlayer(player ResolvedPlayer, offsetSecs int, playlistSta
 
 	// Enable IPC for mpv
 	if isMpv {
+		if settingsScript != "" {
+			args = append(args, "--script="+settingsScript)
+		}
 		ipcSocket = newMPVSocketPath()
 		args = append(args, "--input-ipc-server="+ipcSocket)
 		if playlistStart > 0 {
@@ -548,11 +555,14 @@ func configuredPlayerArgs(configuredArgs []string, definition PlayerDef, knownPl
 }
 
 // launchConfigured launches the media using the user-configured player
-func (l *Launcher) launchConfigured(offsetSecs int, playlistStart int, media ...domain.PlayableMedia) (*exec.Cmd, string, error) {
+func (l *Launcher) launchConfigured(offsetSecs int, playlistStart int, settingsScript string, media ...domain.PlayableMedia) (*exec.Cmd, string, error) {
 	args := append([]string{}, l.args...)
 	definition, knownPlayer := l.lookupPlayerDef(l.command)
 	name := strings.TrimSuffix(executableName(l.command), filepath.Ext(executableName(l.command)))
 	isMpv := strings.EqualFold(name, "mpv")
+	if isMpv && settingsScript != "" {
+		args = append(args, "--script="+settingsScript)
+	}
 
 	seekFlag := l.seekFlag
 	if seekFlag == "" {
@@ -720,10 +730,12 @@ func (l *Launcher) launchDefault(url string) (*exec.Cmd, error) {
 
 // Service orchestrates playback operations
 type Service struct {
-	launcher  *Launcher
-	playback  domain.PlaybackClient
-	scrobbler *Scrobbler
-	logger    *slog.Logger
+	launcher      *Launcher
+	playback      domain.PlaybackClient
+	scrobbler     *Scrobbler
+	logger        *slog.Logger
+	activeMu      sync.Mutex
+	activePlayers map[*exec.Cmd]struct{}
 }
 
 // NewService creates a new playback service
@@ -732,10 +744,11 @@ func NewService(launcher *Launcher, playback domain.PlaybackClient, logger *slog
 		logger = slog.Default()
 	}
 	return &Service{
-		launcher:  launcher,
-		playback:  playback,
-		scrobbler: NewScrobbler(playback, logger),
-		logger:    logger,
+		launcher:      launcher,
+		playback:      playback,
+		scrobbler:     NewScrobbler(playback, logger),
+		logger:        logger,
+		activePlayers: make(map[*exec.Cmd]struct{}),
 	}
 }
 
@@ -791,9 +804,22 @@ func (s *Service) playItem(ctx context.Context, offset time.Duration, item domai
 	s.logger.Info("launching playback",
 		"title", item.Title, "itemID", item.ID, "offset", offset, "playlistSize", len(playableMedias), "startIdx", actualStartIdx)
 
-	cmd, ipcSocket, err := s.launcher.Launch(offset, actualStartIdx, playableMedias...)
+	var settingsScript string
+	var err error
+	if item.ShowID != "" {
+		settingsScript, err = preparePlaybackSettings(item.ShowID)
+		if err != nil {
+			s.logger.Warn("failed to prepare mpv settings script", "error", err)
+		} else {
+			s.logger.Info("using mpv Lua playback settings", "showID", item.ShowID)
+		}
+	}
+	cmd, ipcSocket, err := s.launcher.launch(offset, actualStartIdx, settingsScript, playableMedias...)
 
 	if err != nil {
+		if settingsScript != "" {
+			_ = os.Remove(settingsScript)
+		}
 		return PlaybackHandle{}, err
 	}
 
@@ -802,7 +828,43 @@ func (s *Service) playItem(ctx context.Context, offset time.Duration, item domai
 	// alive until the player process exits. Preserve context values without
 	// inheriting that short-lived cancellation/deadline.
 	monitorCtx := context.WithoutCancel(ctx)
-	return s.scrobbler.Monitor(monitorCtx, cmd, ipcSocket, actualStartIdx, offset.Milliseconds(), filteredPlaybackItems...), nil
+	handle := s.scrobbler.Monitor(monitorCtx, cmd, ipcSocket, actualStartIdx, offset.Milliseconds(), filteredPlaybackItems...)
+	if settingsScript != "" {
+		go func() { <-handle.DoneCh; _ = os.Remove(settingsScript) }()
+	}
+	s.trackPlayer(cmd, handle.DoneCh)
+	return handle, nil
+}
+
+func (s *Service) trackPlayer(cmd *exec.Cmd, done <-chan struct{}) {
+	s.activeMu.Lock()
+	s.activePlayers[cmd] = struct{}{}
+	s.activeMu.Unlock()
+	go func() {
+		<-done
+		s.activeMu.Lock()
+		delete(s.activePlayers, cmd)
+		s.activeMu.Unlock()
+	}()
+}
+
+// Close terminates every player process Cue launched that is still running.
+func (s *Service) Close() {
+	s.activeMu.Lock()
+	players := make([]*exec.Cmd, 0, len(s.activePlayers))
+	for cmd := range s.activePlayers {
+		players = append(players, cmd)
+	}
+	s.activeMu.Unlock()
+
+	for _, cmd := range players {
+		if cmd.Process == nil {
+			continue
+		}
+		if err := cmd.Process.Kill(); err != nil {
+			s.logger.Debug("player was already stopped during Cue shutdown", "error", err)
+		}
+	}
 }
 
 // MarkWatched marks an item as fully watched

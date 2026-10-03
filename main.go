@@ -264,6 +264,7 @@ func run(debug bool) error {
 	searchSvc := search.NewService(libraryStore)
 	searchSvc.SetRemote(client)
 	playbackSvc := player.NewService(launcher, client, logger)
+	defer playbackSvc.Close()
 
 	// Create TUI model with Store and concrete service types
 	model := tui.NewModel(libraryStore, librarySvc, playlistSvc, searchSvc, playbackSvc, client, cfg, cfg.UI, Version)

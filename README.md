@@ -104,6 +104,7 @@ When playing a TV show with mpv, Cue sends the season as a native playlist. This
 - Updating progress throughout the playlist session.
 - Marking preceding episodes as watched when you skip ahead.
 - Marking an episode watched after it reaches the 90% threshold.
+- Restoring the audio and subtitle tracks and timing offsets last selected for that show, including a disabled subtitle track.
 
 On WSL, Cue detects Windows players from both `PATH` and Windows App Paths. Native Windows builds use the same detection.
 
