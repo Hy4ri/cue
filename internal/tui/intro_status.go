@@ -13,15 +13,18 @@ import (
 
 type introStatusLoadedMsg struct{ Key, Label string }
 
-func introStatusLabel(summary segments.IntroSummary) string {
-	if summary.Detected > 0 {
-		return fmt.Sprintf("Detected (%d episodes)", summary.Detected)
+func introStatusLabel(summary segments.IntroSummary, progress segments.AnalysisProgress) string {
+	if progress.Active {
+		if progress.Matching {
+			return fmt.Sprintf("Matching… (%d episodes; %d intros detected)", progress.Total, summary.Detected)
+		}
+		return fmt.Sprintf("Analyzing… (%d/%d fingerprinted; %d intros detected)", progress.Completed, progress.Total, summary.Detected)
 	}
 	if summary.Pending > 0 {
-		return "Analysis pending"
+		return fmt.Sprintf("%d detected · %d analyzed · %d pending", summary.Detected, summary.Analyzed, summary.Pending)
 	}
 	if summary.Analyzed > 0 {
-		return fmt.Sprintf("Not detected (%d episodes analyzed)", summary.Analyzed)
+		return fmt.Sprintf("Analysis complete · intros found in %d/%d episodes", summary.Detected, summary.Analyzed)
 	}
 	return "Not analyzed yet"
 }
@@ -62,7 +65,8 @@ func (m *Model) updateIntroStatus(item interface{}) tea.Cmd {
 	showID, seasonID := season.ShowID, season.ID
 	return func() tea.Msg {
 		summary, err := segments.DefaultCache().SeasonIntroSummary(server, user, showID, seasonID)
-		label := introStatusLabel(summary)
+		progress := segments.SeasonAnalysisProgress(server, user, showID, seasonID)
+		label := introStatusLabel(summary, progress)
 		if err != nil {
 			label = "Status unavailable"
 		}

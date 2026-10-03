@@ -20,6 +20,7 @@ type Analyzer struct {
 	Cache                     Cache
 	Server, User              string
 	WindowSeconds, AudioTrack int
+	IntroWindowSeconds        int
 	Logger                    *slog.Logger
 	// Extractor can be injected for deterministic integration tests.
 	Extractor func(context.Context, string, int64, int, int) ([]uint32, error)
@@ -29,6 +30,16 @@ func (a Analyzer) analyze(ctx context.Context, episodes []*domain.MediaItem) (in
 	if len(episodes) < 3 {
 		return 0, nil
 	}
+	var key progressKey
+	progress := AnalysisProgress{Active: true}
+	for _, episode := range episodes {
+		if episode != nil {
+			key = progressKey{a.Server, a.User, episode.ShowID, episode.ParentID}
+			progress.Total++
+		}
+	}
+	setAnalysisProgress(key, progress)
+	defer setAnalysisProgress(key, AnalysisProgress{})
 	window := a.WindowSeconds
 	if window == 0 {
 		window = 300
@@ -53,16 +64,25 @@ func (a Analyzer) analyze(ctx context.Context, episodes []*domain.MediaItem) (in
 		}
 		id := Identity{Server: a.Server, User: a.User, Show: episode.ShowID, Item: episode.ID, Source: media.SourceID, Revision: media.Revision, DurationMs: media.DurationMs}
 		entry, ok := a.Cache.Load(id)
-		if !ok || entry.WindowSeconds != window || entry.AudioTrack != a.AudioTrack || len(entry.Head) == 0 || len(entry.Tail) == 0 {
+		introWindow := introWindowSeconds(media.DurationMs, a.IntroWindowSeconds)
+		headChanged := !ok || entry.IntroWindowSeconds != introWindow || entry.AudioTrack != a.AudioTrack || len(entry.Head) == 0
+		tailChanged := !ok || entry.WindowSeconds != window || entry.AudioTrack != a.AudioTrack || len(entry.Tail) == 0
+		if headChanged || tailChanged {
 			changed = true
-			entry = Cached{Identity: id, Version: Version, WindowSeconds: window, AudioTrack: a.AudioTrack}
-			entry.Head, err = extract(ctx, media.URL, 0, window, a.AudioTrack)
-			if err != nil {
-				return 0, err
+			entry.Identity, entry.SeasonID, entry.Version = id, episode.ParentID, Version
+			entry.WindowSeconds, entry.IntroWindowSeconds, entry.AudioTrack = window, introWindow, a.AudioTrack
+			entry.Membership, entry.Segments = "", nil
+			if headChanged {
+				entry.Head, err = extract(ctx, media.URL, 0, introWindow, a.AudioTrack)
+				if err != nil {
+					return 0, err
+				}
 			}
-			entry.Tail, err = extract(ctx, media.URL, max(int64(0), media.DurationMs-int64(window)*1000), window, a.AudioTrack)
-			if err != nil {
-				return 0, err
+			if tailChanged {
+				entry.Tail, err = extract(ctx, media.URL, max(int64(0), media.DurationMs-int64(window)*1000), window, a.AudioTrack)
+				if err != nil {
+					return 0, err
+				}
 			}
 			if err := a.Cache.Save(entry); err != nil {
 				return 0, err
@@ -77,6 +97,8 @@ func (a Analyzer) analyze(ctx context.Context, episodes []*domain.MediaItem) (in
 		offsets = append(offsets, max(int64(0), media.DurationMs-int64(window)*1000))
 		heads = append(heads, entry.Head)
 		tails = append(tails, entry.Tail)
+		progress.Completed++
+		setAnalysisProgress(key, progress)
 	}
 	if len(entries) < 3 {
 		return 0, nil
@@ -102,6 +124,8 @@ func (a Analyzer) analyze(ctx context.Context, episodes []*domain.MediaItem) (in
 	}
 	matchCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
+	progress.Matching = true
+	setAnalysisProgress(key, progress)
 	intros, err := Detect(matchCtx, heads, durations, make([]int64, len(entries)), "intro")
 	if err != nil {
 		return 0, err
@@ -121,6 +145,16 @@ func (a Analyzer) analyze(ctx context.Context, episodes []*domain.MediaItem) (in
 	}
 	return count, nil
 }
+
+// Intro scans stay within the first quarter to avoid matching music in story
+// content. The configurable cap defaults to ten minutes.
+func introWindowSeconds(durationMs int64, capSeconds int) int {
+	if capSeconds <= 0 {
+		capSeconds = 600
+	}
+	return max(1, min(capSeconds, int(durationMs/4000)))
+}
+
 func (a Analyzer) AnalyzeSeason(ctx context.Context, seasonID string) (int, error) {
 	requestCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	episodes, err := a.Client.GetEpisodes(requestCtx, seasonID)

@@ -114,7 +114,7 @@ fingerprints and only repeats matching when a season changes. Disable this with
 You can also explicitly analyze a season using its server season ID:
 
 ```bash
-cue analyze --season <season-id> --window 300 --audio-track 0
+cue analyze --season <season-id> --intro-window 600 --window 300 --audio-track 0
 ```
 
 This requires at least three episodes and an FFmpeg build with the Chromaprint
@@ -172,3 +172,10 @@ Cue is forked from [Kino](https://github.com/mmcdole/kino), originally created b
 ## License
 
 MIT
+
+Intro analysis scans the first 25% of each episode, capped at ten minutes by default.
+Set `player.skip.intro_window_seconds` (30–900 seconds) to change the startup cap,
+or use `--intro-window` for an explicit season scan. `--window` controls the outro
+scan separately. Changed intro windows refresh intro fingerprints and reuse unchanged
+outro fingerprints. Each episode needs a confident match; season completion does not
+mean every episode has a detected intro.

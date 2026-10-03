@@ -256,7 +256,7 @@ func run(debug bool) error {
 		analysisDone := make(chan struct{})
 		defer func() { stopAnalysis(); <-analysisDone }()
 		analysisClient, _ := mediaserver.NewClient(cfg, logger)
-		analyzer := segments.Analyzer{Client: analysisClient, Cache: segments.DefaultCache(), Server: cfg.Server.URL, User: cfg.Server.UserID, Logger: logger}
+		analyzer := segments.Analyzer{Client: analysisClient, Cache: segments.DefaultCache(), Server: cfg.Server.URL, User: cfg.Server.UserID, IntroWindowSeconds: cfg.Player.Skip.IntroWindowSeconds, Logger: logger}
 		go func() {
 			defer close(analysisDone)
 			if err := analyzer.Startup(analysisCtx); err != nil && analysisCtx.Err() == nil {

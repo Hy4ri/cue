@@ -43,6 +43,7 @@ type ServerConfig struct {
 
 // PlayerConfig holds media player configuration
 type SkipConfig struct {
+	IntroWindowSeconds  int    `mapstructure:"intro_window_seconds" json:"intro_window_seconds"`
 	AnalysisAtStartup   bool   `mapstructure:"analysis_at_startup" json:"analysis_at_startup"`
 	Intro               string `mapstructure:"intro" json:"intro"`
 	Outro               string `mapstructure:"outro" json:"outro"`
@@ -56,6 +57,9 @@ func DefaultSkipConfig() SkipConfig {
 }
 
 func (s SkipConfig) Validate() error {
+	if s.IntroWindowSeconds != 0 && (s.IntroWindowSeconds < 30 || s.IntroWindowSeconds > 900) {
+		return fmt.Errorf("player.skip.intro_window_seconds must be 0 (default) or 30-900")
+	}
 	for _, mode := range []string{s.Intro, s.Outro} {
 		if mode != "off" && mode != "manual" && mode != "auto" {
 			return fmt.Errorf("player.skip mode must be off, manual, or auto")
@@ -154,7 +158,7 @@ func LoadConfig() (*Config, error) {
 		"server.type", "server.url", "server.token", "server.plex_account_token", "server.user_id",
 		"server.username", "server.device_id",
 		"player.command", "player.args", "player.start_flag",
-		"player.skip.analysis_at_startup", "player.skip.intro", "player.skip.outro", "player.skip.key", "player.skip.undo_key", "player.skip.chapters_when_missing",
+		"player.skip.intro_window_seconds", "player.skip.analysis_at_startup", "player.skip.intro", "player.skip.outro", "player.skip.key", "player.skip.undo_key", "player.skip.chapters_when_missing",
 		"ui.show_watch_status", "ui.show_library_counts", "ui.hide_watched", "ui.autoplay", "ui.play_next_on_select",
 		"ui.theme",
 		"logging.file", "logging.level", "current_profile",
@@ -238,6 +242,7 @@ func SaveConfig(cfg *Config) error {
 	viper.Set("player.command", cfg.Player.Command)
 	viper.Set("player.args", cfg.Player.Args)
 	viper.Set("player.start_flag", cfg.Player.StartFlag)
+	viper.Set("player.skip.intro_window_seconds", cfg.Player.Skip.IntroWindowSeconds)
 	viper.Set("player.skip.analysis_at_startup", cfg.Player.Skip.AnalysisAtStartup)
 	viper.Set("player.skip.intro", cfg.Player.Skip.Intro)
 	viper.Set("player.skip.outro", cfg.Player.Skip.Outro)

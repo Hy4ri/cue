@@ -18,14 +18,15 @@ type Identity struct {
 	DurationMs                                 int64
 }
 type Cached struct {
-	SeasonID      string
-	Membership    string
-	Identity      Identity
-	Version       string
-	WindowSeconds int
-	AudioTrack    int
-	Head, Tail    []uint32
-	Segments      []domain.SkipSegment
+	SeasonID           string
+	Membership         string
+	Identity           Identity
+	Version            string
+	WindowSeconds      int
+	IntroWindowSeconds int
+	AudioTrack         int
+	Head, Tail         []uint32
+	Segments           []domain.SkipSegment
 }
 type Cache struct{ Root string }
 

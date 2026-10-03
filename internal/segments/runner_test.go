@@ -96,3 +96,97 @@ func TestStartupFailureDoesNotPrune(t *testing.T) {
 		t.Fatal("pruned on incomplete inventory")
 	}
 }
+
+func TestAnalysisProgressAndPendingSeasonSummary(t *testing.T) {
+	cache := Cache{Root: t.TempDir()}
+	client := &inventoryClient{}
+	episodes, _ := client.GetEpisodes(context.Background(), "season")
+	for _, episode := range episodes {
+		episode.ParentID = "season"
+	}
+	calls := 0
+	analyzer := Analyzer{Client: client, Cache: cache, Server: "server", User: "user", Extractor: func(context.Context, string, int64, int, int) ([]uint32, error) {
+		progress := SeasonAnalysisProgress("server", "user", "kept", "season")
+		if !progress.Active || progress.Total != 3 || progress.Completed != calls/2 {
+			t.Fatalf("progress during extraction: %+v", progress)
+		}
+		if calls == 2 {
+			summary, err := cache.SeasonIntroSummary("server", "user", "kept", "season")
+			if err != nil || summary.Pending != 1 {
+				t.Fatalf("pending season summary: %+v, %v", summary, err)
+			}
+		}
+		calls++
+		return randomFingerprint(5, 500), nil
+	}}
+	if _, err := analyzer.analyze(context.Background(), episodes); err != nil {
+		t.Fatal(err)
+	}
+	if progress := SeasonAnalysisProgress("server", "user", "kept", "season"); progress.Active {
+		t.Fatalf("finished analysis still active: %+v", progress)
+	}
+	analyzer.Extractor = func(context.Context, string, int64, int, int) ([]uint32, error) { return nil, errors.New("failed") }
+	analyzer.WindowSeconds = 60
+	if _, err := analyzer.analyze(context.Background(), episodes); err == nil {
+		t.Fatal("expected extraction failure")
+	}
+	if progress := SeasonAnalysisProgress("server", "user", "kept", "season"); progress.Active {
+		t.Fatalf("failed analysis still active: %+v", progress)
+	}
+}
+
+type longEpisodeClient struct{ inventoryClient }
+
+func (c *longEpisodeClient) ResolvePlayable(_ context.Context, id string) (domain.PlayableMedia, error) {
+	return domain.PlayableMedia{URL: id, SourceID: "source", Revision: "1", DurationMs: 2400000}, nil
+}
+func TestLateIntroAndIndependentWindowCache(t *testing.T) {
+	client := &longEpisodeClient{}
+	episodes, _ := client.GetEpisodes(context.Background(), "season")
+	cache := Cache{Root: t.TempDir()}
+	heads, tails := 0, 0
+	analyzer := Analyzer{Client: client, Cache: cache, Extractor: func(_ context.Context, url string, offset int64, seconds, track int) ([]uint32, error) {
+		seed := int64(url[0])
+		fp := randomFingerprint(seed, int(float64(seconds)/FrameSeconds))
+		if offset == 0 {
+			heads++
+			start := int(520 / FrameSeconds)
+			if len(fp) >= start+400 {
+				copy(fp[start:], randomFingerprint(999, 400))
+			}
+		} else {
+			tails++
+		}
+		return fp, nil
+	}}
+	count, err := analyzer.analyze(context.Background(), episodes)
+	if err != nil || count != 3 {
+		t.Fatalf("late intro detection: count=%d err=%v", count, err)
+	}
+	if _, err := analyzer.analyze(context.Background(), episodes); err != nil {
+		t.Fatal(err)
+	}
+	if heads != 3 || tails != 3 {
+		t.Fatalf("cache not reused: %d/%d", heads, tails)
+	}
+	analyzer.IntroWindowSeconds = 300
+	count, err = analyzer.analyze(context.Background(), episodes)
+	if err != nil || count != 0 {
+		t.Fatalf("narrow window retained late markers: %d %v", count, err)
+	}
+	if heads != 6 || tails != 3 {
+		t.Fatalf("outros re-extracted: %d/%d", heads, tails)
+	}
+}
+func TestIntroWindowBounds(t *testing.T) {
+	for _, tc := range []struct {
+		duration  int64
+		cap, want int
+	}{
+		{2400000, 0, 600}, {1200000, 0, 300}, {2400000, 900, 600}, {3600000, 900, 900}, {200000, 0, 50},
+	} {
+		if got := introWindowSeconds(tc.duration, tc.cap); got != tc.want {
+			t.Fatalf("%+v: got %d", tc, got)
+		}
+	}
+}
