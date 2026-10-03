@@ -61,7 +61,14 @@ type Directory struct {
 }
 
 // Metadata represents a media item (movie, show, season, or episode)
+type Marker struct {
+	Type  string `json:"type"`
+	Start int64  `json:"startTimeOffset"`
+	End   int64  `json:"endTimeOffset"`
+}
+
 type Metadata struct {
+	Markers               []Marker `json:"Marker,omitempty"`
 	RatingKey             string   `json:"ratingKey"`
 	Key                   string   `json:"key"`
 	ParentRatingKey       string   `json:"parentRatingKey,omitempty"`

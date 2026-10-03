@@ -263,7 +263,11 @@ type Model struct {
 
 	// posterItemID tracks the item a poster fetch was last requested for,
 	// so stale PosterLoadedMsg results are ignored.
-	posterItemID string
+	introStatusKey     string
+	introStatusLabel   string
+	introStatusPending bool
+	introStatusChecked time.Time
+	posterItemID       string
 	// posterRequestKey identifies the item, URL, and rendered dimensions
 	// currently being requested.
 	posterRequestKey string
@@ -347,11 +351,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		return m.handleKeyMsg(msg)
 
+	case introStatusLoadedMsg:
+		if msg.Key == m.introStatusKey {
+			m.introStatusPending = false
+			m.introStatusLabel = msg.Label
+			m.Inspector.SetIntroStatus(msg.Label)
+		}
+		return m, nil
 	case TickMsg:
 		m.SpinnerFrame++
 		// Always propagate spinner frame - columns render spinner only when their loading flag is true
 		m.ColumnStack.UpdateSpinnerFrame(m.SpinnerFrame)
-		return m, TickCmd(100 * time.Millisecond)
+		var statusCmd tea.Cmd
+		if top := m.ColumnStack.Top(); top != nil {
+			statusCmd = m.updateIntroStatus(top.SelectedItem())
+		}
+		return m, tea.Batch(TickCmd(100*time.Millisecond), statusCmd)
 
 	case LibrariesLoadedMsg:
 		m.Libraries = msg.Libraries
@@ -1063,7 +1078,7 @@ func (m Model) findLibrary(id string) *domain.Library {
 }
 
 // updateInspector updates the inspector with the selected item from middle column
-func (m *Model) updateInspector() tea.Cmd {
+func (m *Model) updateInspector() (cmd tea.Cmd) {
 	if m.GlobalSearch.IsVisible() {
 		sel := m.GlobalSearch.Selected()
 		if sel == nil || sel.Item == nil {
@@ -1110,6 +1125,7 @@ func (m *Model) updateInspector() tea.Cmd {
 	}
 	if top == nil {
 		m.Inspector.SetItem(nil)
+		m.updateIntroStatus(nil)
 		if m.hasPosterState() {
 			m.invalidatePoster()
 		}
@@ -1118,6 +1134,12 @@ func (m *Model) updateInspector() tea.Cmd {
 
 	item := top.SelectedItem()
 	m.Inspector.SetItem(item)
+	statusCmd := m.updateIntroStatus(item)
+	defer func() {
+		if statusCmd != nil {
+			cmd = tea.Batch(cmd, statusCmd)
+		}
+	}()
 
 	// The inspector follows the active column, while the preview follows the
 	// nearest movie/show browsing column. Opening seasons or episodes must not

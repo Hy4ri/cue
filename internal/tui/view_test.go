@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/SuperCoolPencil/cue/internal/config"
 	"github.com/SuperCoolPencil/cue/internal/domain"
 	"github.com/SuperCoolPencil/cue/internal/tui/components"
 	tea "github.com/charmbracelet/bubbletea"
@@ -70,5 +71,24 @@ func TestShowPosterAppearsInView(t *testing.T) {
 	}
 	if got := lipgloss.Width(measured); got > m.Width {
 		t.Fatalf("view width = %d, terminal width = %d", got, m.Width)
+	}
+}
+
+func TestIntroStatusInSplitShowPaneWithSeasonFocused(t *testing.T) {
+	showCol := components.NewListColumn(components.ColumnTypeShows, "Shows")
+	showCol.SetItems([]*domain.Show{{ID: "show", Title: "Example", SeasonCount: 1}})
+	seasonCol := components.NewListColumn(components.ColumnTypeSeasons, "Example")
+	seasonCol.SetItems([]*domain.Season{{ID: "season", ShowID: "show", Title: "Season 1"}})
+	m := Model{ColumnStack: NewColumnStack(), Inspector: components.NewInspector(), AppConfig: &config.Config{}}
+	m.ColumnStack.Push(showCol, 0)
+	m.ColumnStack.Push(seasonCol, 0)
+	cmd := m.updateIntroStatus(seasonCol.SelectedItem())
+	if cmd == nil || m.introStatusKey != "\x00\x00show\x00season" {
+		t.Fatal("parent show status was not requested")
+	}
+	m.introStatusLabel = "Detected (6 episodes)"
+	view := m.renderSplitColumn(seasonCol, 70, 10, 20)
+	if !strings.Contains(view, "Intro: Detected (6 episodes)") {
+		t.Fatalf("missing intro status in split pane: %s", view)
 	}
 }

@@ -40,6 +40,11 @@ func (m Model) configEntries() []domain.Library {
 	hideWatched := "off"
 	autoplay := "off"
 	playNextOnSelect := "off"
+	introSkip, outroSkip := "manual", "manual"
+	if m.AppConfig != nil {
+		introSkip = m.AppConfig.Player.Skip.Intro
+		outroSkip = m.AppConfig.Player.Skip.Outro
+	}
 	if m.UIConfig.ShowWatchStatus {
 		showWatch = "on"
 	}
@@ -63,6 +68,8 @@ func (m Model) configEntries() []domain.Library {
 		{ID: "__config_hide_watched__", Name: "Hide watched: " + hideWatched, Type: "config"},
 		{ID: "__config_autoplay__", Name: "Autoplay: " + autoplay, Type: "config"},
 		{ID: "__config_play_next_on_select__", Name: "Play next episode on select: " + playNextOnSelect, Type: "config"},
+		{ID: "__config_skip_intro__", Name: "Skip intros: " + introSkip, Type: "config"},
+		{ID: "__config_skip_outro__", Name: "Skip outros: " + outroSkip, Type: "config"},
 		{ID: "__config_os__", Name: "Platform: " + runtime.GOOS, Type: "config"},
 	}
 }

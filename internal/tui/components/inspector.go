@@ -25,6 +25,7 @@ type inspectorContent struct {
 
 // Inspector displays detailed metadata for the selected item
 type Inspector struct {
+	introStatus   string
 	item          interface{}
 	width         int
 	height        int
@@ -47,10 +48,14 @@ func (i *Inspector) SetItem(item interface{}) {
 	if i.item == item {
 		return
 	}
+	i.introStatus = ""
 	i.item = item
 	i.offset = 0  // Reset scroll on item change
 	i.poster = "" // Clear any previously rendered poster
 }
+
+// SetIntroStatus updates the saved intro-analysis status for the selected show.
+func (i *Inspector) SetIntroStatus(status string) { i.introStatus = status }
 
 // SetPoster stores a rendered poster (ASCII art or kitty image escape sequence)
 // for the currently selected item.
@@ -557,6 +562,10 @@ func (i Inspector) renderSeasonInspector(season domain.Season, width int) string
 	b.WriteString(styles.SubtitleStyle().Render(styles.Truncate(season.ShowTitle, width)))
 	b.WriteString("\n")
 
+	if i.introStatus != "" {
+		b.WriteString(styles.DimStyle().Render("Intro: " + i.introStatus))
+		b.WriteString("\n")
+	}
 	// Episode count
 	b.WriteString(styles.DimStyle().Render(fmt.Sprintf("Episodes: %d", season.EpisodeCount)))
 	b.WriteString("\n")

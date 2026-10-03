@@ -436,7 +436,7 @@ func (c *Client) Search(ctx context.Context, query string) ([]*domain.MediaItem,
 // tracks for an item.
 func (c *Client) ResolvePlayable(ctx context.Context, itemID string) (domain.PlayableMedia, error) {
 	path := fmt.Sprintf("/library/metadata/%s", itemID)
-	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	body, err := c.doRequest(ctx, http.MethodGet, path, url.Values{"includeMarkers": {"1"}})
 	if err != nil {
 		return domain.PlayableMedia{}, err
 	}
@@ -467,7 +467,19 @@ func (c *Client) ResolvePlayable(ctx context.Context, itemID string) (domain.Pla
 		c.logger.Debug("resolved external subtitles", "itemID", itemID, "count", len(subs))
 	}
 
-	return domain.PlayableMedia{URL: mediaURL, Subtitles: subs}, nil
+	segments := make([]domain.SkipSegment, 0, len(m.Markers))
+	for _, marker := range m.Markers {
+		kind := marker.Type
+		if kind == "credits" {
+			kind = "outro"
+		}
+		segments = append(segments, domain.SkipSegment{Kind: kind, StartMs: marker.Start, EndMs: marker.End, Origin: "plex"})
+	}
+	duration := part.Duration
+	if duration == 0 {
+		duration = m.Duration
+	}
+	return domain.PlayableMedia{URL: mediaURL, Subtitles: subs, SourceID: fmt.Sprint(part.ID), Revision: fmt.Sprintf("%d:%d", part.Size, m.UpdatedAt), DurationMs: int64(duration), Segments: domain.ValidSkipSegments(segments, int64(duration))}, nil
 }
 
 // collectExternalSubtitles extracts external subtitle streams from a Plex Part.
@@ -840,4 +852,3 @@ func (c *Client) GetWebURL(ctx context.Context, itemID string) (string, error) {
 	}
 	return fmt.Sprintf("%s/web/index.html#!/details?key=%s", c.baseURL, key), nil
 }
-

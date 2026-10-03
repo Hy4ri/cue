@@ -19,6 +19,7 @@ import (
 	"github.com/SuperCoolPencil/cue/internal/player"
 	"github.com/SuperCoolPencil/cue/internal/playlist"
 	"github.com/SuperCoolPencil/cue/internal/search"
+	"github.com/SuperCoolPencil/cue/internal/segments"
 	"github.com/SuperCoolPencil/cue/internal/store"
 	"github.com/SuperCoolPencil/cue/internal/tui"
 	"github.com/SuperCoolPencil/cue/internal/tui/styles"
@@ -102,12 +103,18 @@ func runCLI(args []string, stdout, stderr io.Writer) int {
 			fs.Usage()
 			_, _ = fmt.Fprintln(stdout, "\nCommands:")
 			_, _ = fmt.Fprintln(stdout, "  completion   Generate shell completion scripts")
+			_, _ = fmt.Fprintln(stdout, "  chapters     Export or explicitly embed generated chapters")
+			_, _ = fmt.Fprintln(stdout, "  analyze      Detect recurring intro/outro sequences in a season")
 			_, _ = fmt.Fprintln(stdout, "  discover     Discover and switch Plex servers via plex.tv")
 			_, _ = fmt.Fprintln(stdout, "  help         Show this help")
 			_, _ = fmt.Fprintln(stdout, "\nFlags:")
 			_, _ = fmt.Fprintln(stdout, "  -d, --debug  Enable debug logging")
 			_, _ = fmt.Fprintln(stdout, "  -v, --version  Print version")
 			return 0
+		case "chapters":
+			return runChapters(remainingArgs[1:], stdout, stderr)
+		case "analyze":
+			return runAnalyze(remainingArgs[1:], stdout, stderr)
 		case "discover":
 			return runDiscover(remainingArgs[1:], stdout, stderr)
 		default:
@@ -130,7 +137,7 @@ const bashCompletion = `_cue_completions() {
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    opts="completion discover help"
+    opts="completion discover analyze chapters help"
 
     case "${prev}" in
         completion)
@@ -243,6 +250,22 @@ func run(debug bool) error {
 		return fmt.Errorf("failed to create media client: %w", err)
 	}
 
+	// Analysis belongs to the application lifetime, never the playback launch.
+	analysisCtx, stopAnalysis := context.WithCancel(context.Background())
+	if cfg.Player.Skip.AnalysisAtStartup {
+		analysisDone := make(chan struct{})
+		defer func() { stopAnalysis(); <-analysisDone }()
+		analysisClient, _ := mediaserver.NewClient(cfg, logger)
+		analyzer := segments.Analyzer{Client: analysisClient, Cache: segments.DefaultCache(), Server: cfg.Server.URL, User: cfg.Server.UserID, Logger: logger}
+		go func() {
+			defer close(analysisDone)
+			if err := analyzer.Startup(analysisCtx); err != nil && analysisCtx.Err() == nil {
+				logger.Warn("startup skip analysis unavailable", "error", err)
+			}
+		}()
+	} else {
+		defer stopAnalysis()
+	}
 	// Create store (persistence layer)
 	libraryStore, err := store.NewLibraryStore(config.DefaultCachePath(), cfg.Server.URL, cfg.Server.UserID)
 	if err != nil {
@@ -257,6 +280,8 @@ func run(debug bool) error {
 
 	// Create launcher (uses configured player or auto-detects)
 	launcher := player.NewLauncher(cfg.Player.Command, cfg.Player.Args, cfg.Player.StartFlag, logger)
+	launcher.SetSkipConfig(&cfg.Player.Skip)
+	launcher.SetSegmentCache(cfg.Server.URL, cfg.Server.UserID)
 
 	// Create services
 	librarySvc := library.NewService(client, libraryStore, logger)

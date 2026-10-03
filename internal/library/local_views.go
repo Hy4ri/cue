@@ -17,9 +17,7 @@ func (s *Service) ContinueWatching(limit int) []*domain.MediaItem {
 			filtered = append(filtered, item)
 		}
 	}
-	sort.SliceStable(filtered, func(i, j int) bool {
-		return filtered[i].UpdatedAt > filtered[j].UpdatedAt
-	})
+	sortContinueWatching(filtered)
 	return limitMediaItems(filtered, limit)
 }
 
@@ -147,4 +145,17 @@ func limitMediaItems(items []*domain.MediaItem, limit int) []*domain.MediaItem {
 		return items
 	}
 	return items[:limit]
+}
+
+// Unknown dates retain server order, rather than substituting metadata dates.
+func sortContinueWatching(items []*domain.MediaItem) {
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i] == nil {
+			return false
+		}
+		if items[j] == nil {
+			return true
+		}
+		return items[i].LastPlayedAt > items[j].LastPlayedAt
+	})
 }

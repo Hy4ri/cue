@@ -42,10 +42,36 @@ type ServerConfig struct {
 }
 
 // PlayerConfig holds media player configuration
+type SkipConfig struct {
+	AnalysisAtStartup   bool   `mapstructure:"analysis_at_startup" json:"analysis_at_startup"`
+	Intro               string `mapstructure:"intro" json:"intro"`
+	Outro               string `mapstructure:"outro" json:"outro"`
+	Key                 string `mapstructure:"key" json:"key"`
+	UndoKey             string `mapstructure:"undo_key" json:"undo_key"`
+	ChaptersWhenMissing bool   `mapstructure:"chapters_when_missing" json:"chapters_when_missing"`
+}
+
+func DefaultSkipConfig() SkipConfig {
+	return SkipConfig{AnalysisAtStartup: true, Intro: "manual", Outro: "manual", Key: "x", UndoKey: "Alt+x", ChaptersWhenMissing: true}
+}
+
+func (s SkipConfig) Validate() error {
+	for _, mode := range []string{s.Intro, s.Outro} {
+		if mode != "off" && mode != "manual" && mode != "auto" {
+			return fmt.Errorf("player.skip mode must be off, manual, or auto")
+		}
+	}
+	if strings.TrimSpace(s.Key) == "" || strings.TrimSpace(s.UndoKey) == "" || s.Key == s.UndoKey {
+		return fmt.Errorf("player.skip keys must be nonempty and different")
+	}
+	return nil
+}
+
 type PlayerConfig struct {
-	Command   string   `mapstructure:"command"`
-	Args      []string `mapstructure:"args"`
-	StartFlag string   `mapstructure:"start_flag"` // e.g., "--start=%d" or "--start-time=%d"
+	Skip      SkipConfig `mapstructure:"skip"`
+	Command   string     `mapstructure:"command"`
+	Args      []string   `mapstructure:"args"`
+	StartFlag string     `mapstructure:"start_flag"` // e.g., "--start=%d" or "--start-time=%d"
 }
 
 // UIConfig holds UI configuration
@@ -69,6 +95,7 @@ func DefaultConfig() *Config {
 	return &Config{
 		CurrentProfile: "default",
 		Profiles:       make(map[string]ProfileConfig),
+		Player:         PlayerConfig{Skip: DefaultSkipConfig()},
 		UI: UIConfig{
 			ShowWatchStatus:   true,
 			ShowLibraryCounts: false,
@@ -127,6 +154,7 @@ func LoadConfig() (*Config, error) {
 		"server.type", "server.url", "server.token", "server.plex_account_token", "server.user_id",
 		"server.username", "server.device_id",
 		"player.command", "player.args", "player.start_flag",
+		"player.skip.analysis_at_startup", "player.skip.intro", "player.skip.outro", "player.skip.key", "player.skip.undo_key", "player.skip.chapters_when_missing",
 		"ui.show_watch_status", "ui.show_library_counts", "ui.hide_watched", "ui.autoplay", "ui.play_next_on_select",
 		"ui.theme",
 		"logging.file", "logging.level", "current_profile",
@@ -149,6 +177,9 @@ func LoadConfig() (*Config, error) {
 
 	if err := viper.Unmarshal(cfg); err != nil {
 		return nil, fmt.Errorf("error parsing config: %w", err)
+	}
+	if err := cfg.Player.Skip.Validate(); err != nil {
+		return nil, err
 	}
 	cfg.applyCurrentProfile()
 
@@ -207,6 +238,12 @@ func SaveConfig(cfg *Config) error {
 	viper.Set("player.command", cfg.Player.Command)
 	viper.Set("player.args", cfg.Player.Args)
 	viper.Set("player.start_flag", cfg.Player.StartFlag)
+	viper.Set("player.skip.analysis_at_startup", cfg.Player.Skip.AnalysisAtStartup)
+	viper.Set("player.skip.intro", cfg.Player.Skip.Intro)
+	viper.Set("player.skip.outro", cfg.Player.Skip.Outro)
+	viper.Set("player.skip.key", cfg.Player.Skip.Key)
+	viper.Set("player.skip.undo_key", cfg.Player.Skip.UndoKey)
+	viper.Set("player.skip.chapters_when_missing", cfg.Player.Skip.ChaptersWhenMissing)
 
 	// Set UI fields
 	viper.Set("ui.show_watch_status", cfg.UI.ShowWatchStatus)

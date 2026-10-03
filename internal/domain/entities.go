@@ -17,18 +17,19 @@ const (
 
 // MediaItem represents a playable item (Movie or Episode)
 type MediaItem struct {
-	ID         string        // Server-specific unique identifier
-	Title      string        // Display title
-	SortTitle  string        // Title used for sorting
-	LibraryID  string        // Parent library ID
-	Summary    string        // Plot synopsis
-	Year       int           // Release year
-	AddedAt    int64         // Unix timestamp when added to library
-	UpdatedAt  int64         // Unix timestamp when last updated
-	Duration   time.Duration // Total runtime
-	ViewOffset time.Duration // Watch progress
-	IsPlayed   bool          // Whether item is marked as watched
-	Type       MediaType     // Movie or Episode
+	ID           string        // Server-specific unique identifier
+	Title        string        // Display title
+	SortTitle    string        // Title used for sorting
+	LibraryID    string        // Parent library ID
+	Summary      string        // Plot synopsis
+	Year         int           // Release year
+	AddedAt      int64         // Unix timestamp when added to library
+	UpdatedAt    int64         // Unix timestamp when last updated
+	Duration     time.Duration // Total runtime
+	ViewOffset   time.Duration // Watch progress
+	LastPlayedAt int64         // Unix timestamp of the most recent playback activity
+	IsPlayed     bool          // Whether item is marked as watched
+	Type         MediaType     // Movie or Episode
 
 	// Episode-specific fields (empty for movies)
 	ShowTitle  string // Parent show name

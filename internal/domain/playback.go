@@ -49,8 +49,13 @@ type Subtitle struct {
 // PlayableMedia describes everything the player needs to play an item:
 // the main media URL plus any external (sidecar) subtitle tracks the server exposes.
 type PlayableMedia struct {
-	URL       string
-	Subtitles []Subtitle
+	URL         string
+	Subtitles   []Subtitle
+	SourceID    string // Stable selected source/part ID, never an authenticated URL
+	Revision    string // Source revision for invalidating detected intervals
+	DurationMs  int64
+	Segments    []SkipSegment
+	SegmentFile string // Private local analysis path for results completed during playback
 }
 
 // PlaybackClient provides network operations for media playback.

@@ -311,3 +311,17 @@ func TestListColumnContinueWatchingEpisodeShowsProgress(t *testing.T) {
 		t.Errorf("expected watch progress in row, got %q", got)
 	}
 }
+
+func TestContinueWatchingMovieProgressAndActivityOrder(t *testing.T) {
+	movie := &domain.MediaItem{ID: "recent", Title: "Z Movie", Type: domain.MediaTypeMovie, Duration: 100 * time.Minute, ViewOffset: 45 * time.Minute}
+	episode := &domain.MediaItem{ID: "older", Title: "A Pilot", ShowTitle: "Show", Type: domain.MediaTypeEpisode}
+	col := NewListColumn(ColumnTypeMixed, "Continue Watching")
+	col.SetShowShowTitle(true)
+	col.SetItems([]*domain.MediaItem{movie, episode})
+	if col.SelectedMediaItem().ID != "recent" {
+		t.Fatal("activity order replaced by alphabetical order")
+	}
+	if got := col.renderItem(0, false, 60); !strings.Contains(got, "45%") {
+		t.Fatalf("movie missing progress: %q", got)
+	}
+}

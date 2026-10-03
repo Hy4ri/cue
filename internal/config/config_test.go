@@ -138,3 +138,39 @@ func TestDefaultConfigEnablesPlayNextOnSelect(t *testing.T) {
 		t.Fatal("PlayNextOnSelect should be enabled by default")
 	}
 }
+
+func TestSkipConfigRoundTripAndEnv(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", home)
+	t.Setenv("APPDATA", home)
+	t.Chdir(t.TempDir())
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Player.Skip.Intro != "manual" || !cfg.Player.Skip.ChaptersWhenMissing {
+		t.Fatalf("defaults=%+v", cfg.Player.Skip)
+	}
+	cfg.Player.Skip.Outro = "off"
+	cfg.Player.Skip.Key = "k"
+	if err := SaveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	viper.Reset()
+	t.Setenv("CUE_PLAYER_SKIP_INTRO", "auto")
+	cfg, err = LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Player.Skip.Intro != "auto" || cfg.Player.Skip.Outro != "off" || cfg.Player.Skip.Key != "k" {
+		t.Fatalf("roundtrip=%+v", cfg.Player.Skip)
+	}
+	t.Setenv("CUE_PLAYER_SKIP_INTRO", "invalid")
+	viper.Reset()
+	if _, err := LoadConfig(); err == nil {
+		t.Fatal("accepted invalid mode")
+	}
+}

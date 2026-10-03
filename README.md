@@ -93,6 +93,53 @@ Cue uses the Kitty graphics protocol when running directly in Kitty. Other termi
 | `?` | Show help |
 | `q` | Quit or go back |
 
+### Intro and Outro Skipping
+
+In mpv, Cue displays “Press x to skip intro/outro” while a known segment plays.
+Press `x` to skip, or `Alt+x` to undo. The keys are configurable under `player.skip`;
+user mpv keybindings take precedence. The Config menu cycles intro/outro skipping
+through off, manual, and auto for subsequent playback sessions.
+
+Cue uses Plex intro/credits markers, Jellyfin media segments (including those
+published by compatible Intro Skipper plugins), and explicitly named embedded
+chapters such as Intro, OP, Ending, ED, or Credits. When a stream has no chapters,
+Cue adds runtime chapters for known intervals. Existing chapters are preserved;
+original media files are modified only by an explicit `chapters --write` command.
+
+Cue automatically inventories and analyzes all shows in the background at startup,
+using one worker so browsing and playback can start immediately. It reuses existing
+fingerprints and only repeats matching when a season changes. Disable this with
+`player.skip.analysis_at_startup: false`.
+
+You can also explicitly analyze a season using its server season ID:
+
+```bash
+cue analyze --season <season-id> --window 300 --audio-track 0
+```
+
+This requires at least three episodes and an FFmpeg build with the Chromaprint
+muxer (`ffmpeg -h muxer=chromaprint`). Analysis fingerprints the beginning and end
+of each episode and caches results by server, media source, and revision. Remote
+analysis can transfer substantial media data. Startup analysis can continue while
+you watch; it never blocks playback or library refresh. Repeated audio is only a candidate intro/outro: these experimental
+results always require a manual skip, even in auto mode. Content after a bounded
+outro remains playable.
+
+Per-show `settings.json`, analysis JSON files, and generated Lua scripts share
+`~/.config/cue/playback-settings/<server-account>/<show>/` (IDs are hashed).
+Generated launch scripts are removed when playback ends; analysis persists.
+After a complete successful inventory, Cue removes directories for absent series
+and analysis files for removed episodes. Failed or incomplete inventories never
+trigger cleanup, and other server profiles are left intact.
+
+To export known segments as Matroska chapter XML, use
+`cue chapters --item <item-id> > chapters.xml`. To embed them into a local original,
+use `cue chapters --item <item-id> --write --file /path/to/original.mkv`.
+Embedding requires `ffprobe` and `mkvpropedit`, refuses files with existing chapters,
+stages a full copy (requiring free disk space), and retains the original as
+`original.mkv.cue-chapters.bak`. Review experimental detection boundaries before
+embedding them. The supplied file must correspond to the selected server source.
+
 ### Playback
 
 Cue supports mpv, VLC, IINA, PotPlayer, and other system players. mpv is recommended because native playlists, resume tracking, and real-time scrobbling depend on its IPC support.

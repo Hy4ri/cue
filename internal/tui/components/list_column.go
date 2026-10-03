@@ -423,8 +423,9 @@ func (c *ListColumn) SetItems(rawItems interface{}) {
 		}
 	}
 
-	// Apply default sort for sortable column types
-	if c.columnSortable() {
+	// Continue Watching keeps the server/service activity order instead of
+	// applying the alphabetical default used by library columns.
+	if c.columnSortable() && !c.showShowTitle {
 		if c.columnType == ColumnTypeEpisodes {
 			c.sortField = SortEpisodeNum
 			c.sortDir = SortAsc
@@ -1202,6 +1203,9 @@ func (c *ListColumn) renderMovieItem(item domain.MediaItem, selected bool, width
 	// Available space: width - indicator(1) - space(1) - margins(2)
 	availableForTitle := width - 4
 	tag := c.sortTag(&item)
+	if tag == "" && c.showShowTitle {
+		tag = watchProgressTag(item)
+	}
 	if tag != "" {
 		availableForTitle -= len(tag) + 1
 	}
@@ -1498,6 +1502,11 @@ func (c *ListColumn) renderMixedItem(item domain.ListItem, selected bool, width 
 	// Available space: width - indicator(1) - space(1) - margins(2)
 	availableForTitle := width - 4
 	tag := c.sortTag(item)
+	if tag == "" && c.showShowTitle {
+		if media, ok := item.(*domain.MediaItem); ok {
+			tag = watchProgressTag(*media)
+		}
+	}
 	if tag != "" {
 		availableForTitle -= len(tag) + 1
 	}

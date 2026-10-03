@@ -468,6 +468,34 @@ func (m *Model) drillVirtualLibrary(v domain.Library, cursor int) *drillResult {
 		}
 		m.StatusMsg = "Saved hide watched setting"
 		return &drillResult{AwaitKind: AwaitNone}
+	case "__config_skip_intro__", "__config_skip_outro__":
+		if m.AppConfig != nil {
+			value := &m.AppConfig.Player.Skip.Intro
+			if v.ID == "__config_skip_outro__" {
+				value = &m.AppConfig.Player.Skip.Outro
+			}
+			switch *value {
+			case "off":
+				*value = "manual"
+			case "manual":
+				*value = "auto"
+			default:
+				*value = "off"
+			}
+			if err := config.SaveConfig(m.AppConfig); err != nil {
+				m.StatusMsg = fmt.Sprintf("Failed to save config: %v", err)
+				m.StatusIsErr = true
+				return &drillResult{AwaitKind: AwaitNone}
+			}
+		}
+		if top := m.ColumnStack.Top(); top != nil {
+			top.SetItems(m.configEntries())
+		}
+		if m.PlaybackSvc != nil && m.AppConfig != nil {
+			m.PlaybackSvc.SetSkipConfig(&m.AppConfig.Player.Skip)
+		}
+		m.StatusMsg = "Saved skip setting (applies to next playback)"
+		return &drillResult{AwaitKind: AwaitNone}
 	case "__config_autoplay__":
 		m.UIConfig.Autoplay = !m.UIConfig.Autoplay
 		if m.AppConfig != nil {

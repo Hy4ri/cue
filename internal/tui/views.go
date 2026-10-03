@@ -278,6 +278,14 @@ func (m Model) renderSplitColumn(col *components.ListColumn, colWidth, listHeigh
 	}
 
 	insp.SetItem(selected)
+	if season := introSeason(selected); season != nil && m.AppConfig != nil {
+		key := strings.Join([]string{m.AppConfig.Server.URL, m.AppConfig.Server.UserID, season.ShowID, season.ID}, "\x00")
+		if key == m.introStatusKey {
+			insp.SetIntroStatus(m.introStatusLabel)
+		} else {
+			insp.SetIntroStatus("Checking…")
+		}
+	}
 	infoView := insp.View()
 
 	return lipgloss.JoinVertical(lipgloss.Left, listView, infoView)
