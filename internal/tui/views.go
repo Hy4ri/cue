@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/SuperCoolPencil/cue/internal/domain"
 	"github.com/SuperCoolPencil/cue/internal/tui/components"
@@ -505,7 +506,7 @@ func (m Model) renderHelp() string {
 
 // renderConfirmDialog renders a centered confirmation modal with styled buttons
 func renderConfirmDialog(width, height int, title, body string, buttonLabels []string, focusedIdx int) string {
-	modalWidth := 56
+	modalWidth := max(1, min(56, width-6))
 
 	bg := lipgloss.NewStyle().Background(styles.ActiveTheme().BgDark)
 
@@ -548,6 +549,19 @@ func renderConfirmDialog(width, height int, title, body string, buttonLabels []s
 
 	buttons := lipgloss.JoinHorizontal(lipgloss.Top, buttonList...)
 
+	if lipgloss.Width(buttons) > modalWidth {
+		// Stack actions in narrow terminals instead of overflowing the modal.
+		var rows []string
+		for i, label := range buttonLabels {
+			buttonStyle := lipgloss.NewStyle().Foreground(styles.ActiveTheme().FgMid).Background(styles.ActiveTheme().BgMid).Width(modalWidth).Align(lipgloss.Center)
+			if i == focusedIdx {
+				buttonStyle = buttonStyle.Foreground(styles.ActiveTheme().FgBright).Background(styles.ActiveTheme().Accent).Bold(true)
+				label = "▸ " + label
+			}
+			rows = append(rows, buttonStyle.Render(styles.Truncate(label, modalWidth)))
+		}
+		buttons = lipgloss.JoinVertical(lipgloss.Left, rows...)
+	}
 	buttonRow := bg.
 		Width(modalWidth).
 		Align(lipgloss.Center).
@@ -575,17 +589,37 @@ func renderConfirmDialog(width, height int, title, body string, buttonLabels []s
 func (m Model) renderResumeConfirmation() string {
 	title := "Resume Playback?"
 	body := "Selected item"
-	if m.pendingPlayback != nil {
-		body = styles.Truncate(m.pendingPlayback.Title, 38)
+	if item := m.pendingPlayback; item != nil {
+		lines := []string{}
+		if item.Type == domain.MediaTypeEpisode {
+			if item.ShowTitle != "" {
+				lines = append(lines, styles.Truncate(item.ShowTitle, max(1, min(56, m.Width-6))))
+			}
+			episode := fmt.Sprintf("S%02dE%02d", item.SeasonNum, item.EpisodeNum)
+			if item.Title != "" {
+				episode += " · " + item.Title
+			}
+			lines = append(lines, styles.Truncate(episode, max(1, min(56, m.Width-6))))
+		} else {
+			lines = append(lines, styles.Truncate(item.Title, max(1, min(56, m.Width-6))))
+		}
+		position := resumeTimestamp(item.ViewOffset)
+		if item.Duration > 0 {
+			position += " / " + resumeTimestamp(item.Duration)
+		}
+		lines = append(lines, "Resume from "+position)
+		body = strings.Join(lines, "\n")
 	}
 
-	buttons := []string{styles.RenderKeyHint("Y", "Resume"), styles.RenderKeyHint("N", "Start Over"), styles.RenderKeyHint("Esc", "Cancel")}
+	// Plain labels let the button own its foreground/background throughout.
+	// Nested RenderKeyHint ANSI resets previously broke the selection highlight.
+	buttons := []string{"Y Resume", "N Start Over", "Esc Cancel"}
 	return renderConfirmDialog(m.Width, m.Height, title, body, buttons, m.confirmFocusedIdx)
 }
 
 // renderLogoutConfirmation renders the logout confirmation modal
 func (m Model) renderLogoutConfirmation() string {
-	buttons := []string{styles.RenderKeyHint("Y", "Yes"), styles.RenderKeyHint("N", "No")}
+	buttons := []string{"Y Yes", "N No"}
 	return renderConfirmDialog(m.Width, m.Height,
 		"Log Out?",
 		"This will clear your credentials,\nserver URL, and all cached data.",
@@ -599,9 +633,17 @@ func (m Model) renderDeleteConfirmation() string {
 		itemTitle = styles.Truncate(m.pendingDelete.GetTitle(), 38)
 	}
 
-	buttons := []string{styles.RenderKeyHint("Y", "Yes"), styles.RenderKeyHint("N", "No"), styles.RenderKeyHint("Esc", "Cancel")}
+	buttons := []string{"Y Yes", "N No", "Esc Cancel"}
 	return renderConfirmDialog(m.Width, m.Height,
 		"Delete Local File?",
 		fmt.Sprintf("Are you sure you want to delete\n%s\nfrom the server? This action cannot be undone.", itemTitle),
 		buttons, m.confirmFocusedIdx)
+}
+
+func resumeTimestamp(value time.Duration) string {
+	seconds := int64(max(value, 0) / time.Second)
+	if seconds >= 3600 {
+		return fmt.Sprintf("%d:%02d:%02d", seconds/3600, (seconds/60)%60, seconds%60)
+	}
+	return fmt.Sprintf("%d:%02d", seconds/60, seconds%60)
 }
