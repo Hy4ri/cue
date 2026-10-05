@@ -63,6 +63,51 @@ func pairMatches(ctx context.Context, a, b []uint32, minFrames int) ([]match, er
 	return matches, nil
 }
 
+// consensusMatches retains regions supported by at least two distinct peers.
+// Merge each peer's estimates first so repeated matches cannot inflate support.
+// A shorter peer match cannot truncate edges confirmed by two other peers.
+func consensusMatches(support [][]match, minFrames int) []match {
+	type event struct{ frame, delta int }
+	var events []event
+	for _, estimates := range support {
+		estimates = append([]match(nil), estimates...)
+		sort.Slice(estimates, func(i, j int) bool { return estimates[i].start < estimates[j].start })
+		var merged []match
+		for _, m := range estimates {
+			if m.end <= m.start {
+				continue
+			}
+			if len(merged) > 0 && m.start <= merged[len(merged)-1].end {
+				merged[len(merged)-1].end = max(merged[len(merged)-1].end, m.end)
+			} else {
+				merged = append(merged, m)
+			}
+		}
+		for _, m := range merged {
+			events = append(events, event{m.start, 1}, event{m.end, -1})
+		}
+	}
+	sort.Slice(events, func(i, j int) bool { return events[i].frame < events[j].frame })
+	var result []match
+	count, start := 0, 0
+	for i := 0; i < len(events); {
+		frame, delta := events[i].frame, 0
+		for i < len(events) && events[i].frame == frame {
+			delta += events[i].delta
+			i++
+		}
+		next := count + delta
+		if count < 2 && next >= 2 {
+			start = frame
+		}
+		if count >= 2 && next < 2 && frame-start >= minFrames {
+			result = append(result, match{start, frame})
+		}
+		count = next
+	}
+	return result
+}
+
 // Detect requires the same bounded passage to match two other episodes.
 // Each episode is aligned independently, allowing shifted cold opens and
 // different opening clusters within a season. Conflicting candidates abstain.
@@ -76,7 +121,6 @@ func Detect(ctx context.Context, fingerprints [][]uint32, durations []int64, off
 		if i >= len(durations) || i >= len(offsets) {
 			continue
 		}
-		var candidates []match
 		support := make([][]match, len(fingerprints))
 		for j, b := range fingerprints {
 			if i == j {
@@ -87,44 +131,8 @@ func Detect(ctx context.Context, fingerprints [][]uint32, durations []int64, off
 				return nil, err
 			}
 			support[j] = m
-			candidates = append(candidates, m...)
 		}
-		var accepted []match
-		for _, candidate := range candidates {
-			count := 0
-			start, end := candidate.start, candidate.end
-			for _, other := range support {
-				for _, m := range other {
-					lo, hi := max(candidate.start, m.start), min(candidate.end, m.end)
-					if hi-lo >= minFrames && hi-lo >= (candidate.end-candidate.start)*8/10 {
-						count++
-						start = max(start, lo)
-						end = min(end, hi)
-						break
-					}
-				}
-			}
-			if count >= 2 && end-start >= minFrames {
-				accepted = append(accepted, match{start, end})
-			}
-		}
-		sort.Slice(accepted, func(i, j int) bool {
-			if accepted[i].start == accepted[j].start {
-				return accepted[i].end > accepted[j].end
-			}
-			return accepted[i].start < accepted[j].start
-		})
-		var unique []match
-		for _, m := range accepted {
-			if len(unique) > 0 && m.start < unique[len(unique)-1].end {
-				// Multiple overlapping estimates: only retain their common interior.
-				u := &unique[len(unique)-1]
-				u.start = max(u.start, m.start)
-				u.end = min(u.end, m.end)
-			} else {
-				unique = append(unique, m)
-			}
-		}
+		unique := consensusMatches(support, minFrames)
 		for _, m := range unique {
 			start := offsets[i] + int64((float64(m.start)*FrameSeconds+boundaryMargin)*1000)
 			end := offsets[i] + int64(float64(m.end)*FrameSeconds*1000)

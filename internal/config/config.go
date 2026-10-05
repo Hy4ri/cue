@@ -53,7 +53,7 @@ type SkipConfig struct {
 }
 
 func DefaultSkipConfig() SkipConfig {
-	return SkipConfig{AnalysisAtStartup: true, Intro: "manual", Outro: "manual", Key: "x", UndoKey: "Alt+x", ChaptersWhenMissing: true}
+	return SkipConfig{AnalysisAtStartup: true, Intro: "manual", Outro: "manual", Key: "Ctrl+x", UndoKey: "Alt+x", ChaptersWhenMissing: true}
 }
 
 func (s SkipConfig) Validate() error {

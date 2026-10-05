@@ -111,3 +111,58 @@ func TestDetectRejectsMostlyMatchingShortFragments(t *testing.T) {
 		}
 	}
 }
+
+func TestConsensusCountsDistinctPeers(t *testing.T) {
+	cases := []struct {
+		name    string
+		support [][]match
+		want    []match
+	}{
+		{"short outlier", [][]match{{{100, 600}}, {{100, 600}}, {{140, 550}}}, []match{{100, 600}}},
+		{"single long estimate", [][]match{{{100, 600}}, {{140, 550}}}, []match{{140, 550}}},
+		{"duplicates", [][]match{{{100, 600}, {100, 600}, {120, 580}}}, nil},
+		{"separate regions", [][]match{{{0, 300}, {500, 800}}, {{0, 300}, {500, 800}}}, []match{{0, 300}, {500, 800}}},
+		{"short overlap", [][]match{{{0, 300}}, {{200, 500}}}, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := consensusMatches(tc.support, 202)
+			if len(got) != len(tc.want) {
+				t.Fatalf("got %v want %v", got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Fatalf("got %v want %v", got, tc.want)
+				}
+			}
+		})
+	}
+}
+func TestDetectShortVariantDoesNotTrimFullIntros(t *testing.T) {
+	theme := randomFingerprint(88, 500)
+	var episodes [][]uint32
+	for i := 0; i < 4; i++ {
+		fp := randomFingerprint(int64(100+i), 1000)
+		if i == 3 {
+			copy(fp[140:550], theme[40:450])
+		} else {
+			copy(fp[100:600], theme)
+		}
+		episodes = append(episodes, fp)
+	}
+	got, err := Detect(context.Background(), episodes, []int64{200000, 200000, 200000, 200000}, []int64{0, 0, 0, 0}, "intro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, s := range got {
+		start, end := 100, 600
+		if i == 3 {
+			start, end = 140, 550
+		}
+		wantStart := int64((float64(start)*FrameSeconds + boundaryMargin) * 1000)
+		wantEnd := int64(float64(end) * FrameSeconds * 1000)
+		if len(s) != 1 || s[0].StartMs != wantStart || s[0].EndMs != wantEnd {
+			t.Fatalf("episode %d: %v, want %d-%d", i, s, wantStart, wantEnd)
+		}
+	}
+}

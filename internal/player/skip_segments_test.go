@@ -100,7 +100,7 @@ func TestMPVSkipPromptSeekUndoAndChapters(t *testing.T) {
 		a, _ := v.([]interface{})
 		for _, v := range a {
 			b, _ := v.(map[string]interface{})
-			if b["key"] == "x" {
+			if b["key"] == "Ctrl+x" {
 				cmd, _ := b["cmd"].(string)
 				if len(cmd) > 0 && strings.Contains(cmd, "cue-skip") {
 					return true
@@ -109,7 +109,7 @@ func TestMPVSkipPromptSeekUndoAndChapters(t *testing.T) {
 		}
 		return false
 	})
-	if _, err := connection.request([]interface{}{"keypress", "x"}); err != nil {
+	if _, err := connection.request([]interface{}{"keypress", "Ctrl+x"}); err != nil {
 		t.Fatal(err)
 	}
 	wait(func() bool { v, _ := connection.GetTimePos(); return v >= 4.9 && v < 5.2 })
@@ -132,9 +132,13 @@ func mpvWait(t *testing.T, check func() bool) {
 }
 func TestMPVRespectsUserBindingAndExistingChapters(t *testing.T) {
 	input := filepath.Join(t.TempDir(), "input.conf")
-	os.WriteFile(input, []byte("x set volume 37\n"), 0600)
+	if err := os.WriteFile(input, []byte("Ctrl+x set volume 37\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	fixture := filepath.Join(t.TempDir(), "chapters.lua")
-	os.WriteFile(fixture, []byte("mp.register_event('file-loaded',function() mp.set_property_native('chapter-list',{{time=0,title='Original'},{time=6,title='Story'}}) end)"), 0600)
+	if err := os.WriteFile(fixture, []byte("mp.register_event('file-loaded',function() mp.set_property_native('chapter-list',{{time=0,title='Original'},{time=6,title='Story'}}) end)"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	connection := startTestMPV(t, config.DefaultSkipConfig(), []domain.PlayableMedia{{DurationMs: 12000, Segments: []domain.SkipSegment{{Kind: "intro", StartMs: 1000, EndMs: 5000}}}}, []string{"--input-conf=" + input, "--script=" + fixture})
 	mpvWait(t, func() bool {
 		v, _ := connection.GetProperty("chapter-list")
@@ -143,7 +147,9 @@ func TestMPVRespectsUserBindingAndExistingChapters(t *testing.T) {
 	})
 	connection.request([]interface{}{"seek", 2, "absolute", "exact"})
 	time.Sleep(100 * time.Millisecond)
-	connection.request([]interface{}{"keypress", "x"})
+	if _, err := connection.request([]interface{}{"keypress", "Ctrl+x"}); err != nil {
+		t.Fatal(err)
+	}
 	mpvWait(t, func() bool { v, _ := connection.GetProperty("volume"); return v == float64(37) })
 	pos, _ := connection.GetTimePos()
 	if pos > 2.2 {
@@ -169,7 +175,9 @@ func TestMPVLateAnalysisAndPlaylistMapping(t *testing.T) {
 	})
 	connection.request([]interface{}{"seek", 2, "absolute", "exact"})
 	time.Sleep(100 * time.Millisecond)
-	connection.request([]interface{}{"keypress", "x"})
+	if _, err := connection.request([]interface{}{"keypress", "Ctrl+x"}); err != nil {
+		t.Fatal(err)
+	}
 	mpvWait(t, func() bool { pos, _ := connection.GetTimePos(); return pos > 6.9 && pos < 7.2 })
 	connection.request([]interface{}{"playlist-prev", "force"})
 	mpvWait(t, func() bool { v, _ := connection.GetProperty("playlist-pos"); return v == float64(0) })

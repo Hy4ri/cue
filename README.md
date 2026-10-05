@@ -96,7 +96,7 @@ Cue uses the Kitty graphics protocol when running directly in Kitty. Other termi
 ### Intro and Outro Skipping
 
 In mpv, Cue displays “Press x to skip intro/outro” while a known segment plays.
-Press `x` to skip, or `Alt+x` to undo. The keys are configurable under `player.skip`;
+Press `Ctrl+x` to skip, or `Alt+x` to undo. The keys are configurable under `player.skip`;
 user mpv keybindings take precedence. The Config menu cycles intro/outro skipping
 through off, manual, and auto for subsequent playback sessions.
 

@@ -32,7 +32,7 @@ player:
     analysis_at_startup: true
     intro: manual
     outro: manual
-    key: x
+    key: Ctrl+x
     undo_key: Alt+x
     chapters_when_missing: true
 
