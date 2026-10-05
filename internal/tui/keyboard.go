@@ -729,7 +729,7 @@ func (m Model) handleNextEpisode() (tea.Model, tea.Cmd) {
 	if item, ok := top.SelectedItem().(domain.ListItem); ok && item.GetItemType() == "show" {
 		return m.playNextEpisodeForShow(item)
 	}
-	if top.ColumnType() != components.ColumnTypeEpisodes {
+	if top.ColumnType() != components.ColumnTypeEpisodes && top.ColumnType() != components.ColumnTypeSeasonEpisodes {
 		m.StatusMsg = "Open a season to quick-play next unwatched episode"
 		return m, ClearStatusCmd(3 * time.Second)
 	}
