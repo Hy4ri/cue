@@ -292,7 +292,7 @@ func (m *PlaylistModal) View() string {
 		}
 		title = "Add to Playlist: " + itemTitle
 	}
-	titleLine := styles.ModalTitleStyle.Render(title)
+	titleLine := styles.ModalTitleStyle().Render(title)
 	lines = append(lines, titleLine)
 	lines = append(lines, "")
 
@@ -311,16 +311,16 @@ func (m *PlaylistModal) View() string {
 
 		if selected {
 			line = lipgloss.NewStyle().
-				Foreground(styles.White).
-				Background(styles.SlateLight).
+				Foreground(styles.ActiveTheme().FgBright).
+				Background(styles.ActiveTheme().BgMid).
 				Render(styles.Pad(line, modalWidth-4))
 		} else if isMember {
 			line = lipgloss.NewStyle().
-				Foreground(styles.PlexOrange).
+				Foreground(styles.ActiveTheme().Accent).
 				Render(styles.Pad(line, modalWidth-4))
 		} else {
 			line = lipgloss.NewStyle().
-				Foreground(styles.LightGray).
+				Foreground(styles.ActiveTheme().FgMid).
 				Render(styles.Pad(line, modalWidth-4))
 		}
 		lines = append(lines, "  "+line)
@@ -334,12 +334,12 @@ func (m *PlaylistModal) View() string {
 	}
 	if createSelected && !m.createMode {
 		createLine = lipgloss.NewStyle().
-			Foreground(styles.White).
-			Background(styles.SlateLight).
+			Foreground(styles.ActiveTheme().FgBright).
+			Background(styles.ActiveTheme().BgMid).
 			Render(styles.Pad(createLine, modalWidth-4))
 	} else {
 		createLine = lipgloss.NewStyle().
-			Foreground(styles.DimGray).
+			Foreground(styles.ActiveTheme().FgDim).
 			Render(styles.Pad(createLine, modalWidth-4))
 	}
 	lines = append(lines, "")
@@ -347,15 +347,15 @@ func (m *PlaylistModal) View() string {
 
 	// Help text
 	lines = append(lines, "")
-	helpText := styles.DimStyle.Render("Space: Toggle  n: New  Esc: Done")
+	helpText := styles.BrightStyle().Render("Space: Toggle  n: New  Esc: Done")
 	lines = append(lines, helpText)
 
 	content := strings.Join(lines, "\n")
 
 	modal := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(styles.PlexOrange).
-		Background(styles.SlateDark).
+		BorderForeground(styles.ActiveTheme().Accent).
+		Background(styles.ActiveTheme().BgDark).
 		Padding(1, 2).
 		Width(modalWidth).
 		Render(content)

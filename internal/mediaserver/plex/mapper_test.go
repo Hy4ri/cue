@@ -126,3 +126,11 @@ func TestPlexMediaURLNormalizesRelativeAndAbsolutePaths(t *testing.T) {
 		t.Fatalf("relative art URL = %q", item.ArtURL)
 	}
 }
+
+func TestLastPlayedMappedForMoviesAndEpisodes(t *testing.T) {
+	for _, item := range []domain.MediaItem{mapMovie(Metadata{LastViewedAt: 123}, ""), mapEpisode(Metadata{LastViewedAt: 123}, "")} {
+		if item.LastPlayedAt != 123 {
+			t.Fatalf("last played=%d", item.LastPlayedAt)
+		}
+	}
+}

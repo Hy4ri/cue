@@ -130,3 +130,13 @@ func TestRecentlyAddedMixed(t *testing.T) {
 		t.Errorf("expected index 1 to be movie, got %s", recent[1].GetItemType())
 	}
 }
+
+func TestContinueWatchingUsesLastPlayedNotMetadataDate(t *testing.T) {
+	items := []*domain.MediaItem{{ID: "metadata-new", UpdatedAt: 999, LastPlayedAt: 10}, {ID: "unknown-a"}, {ID: "watched-new", UpdatedAt: 1, LastPlayedAt: 20}, {ID: "unknown-b"}}
+	sortContinueWatching(items)
+	for i, want := range []string{"watched-new", "metadata-new", "unknown-a", "unknown-b"} {
+		if items[i].ID != want {
+			t.Fatalf("position %d=%s want %s", i, items[i].ID, want)
+		}
+	}
+}

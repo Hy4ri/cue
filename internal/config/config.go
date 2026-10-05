@@ -32,28 +32,60 @@ type Config struct {
 
 // ServerConfig holds media server configuration
 type ServerConfig struct {
-	Type     SourceType `mapstructure:"type"     yaml:"type"`       // "plex" or "jellyfin"
-	URL      string     `mapstructure:"url"      yaml:"url"`        // Server URL
-	Token    string     `mapstructure:"token"    yaml:"token"`      // Plex token OR Jellyfin API key
-	UserID   string     `mapstructure:"user_id"  yaml:"user_id"`    // Jellyfin only
-	Username string     `mapstructure:"username" yaml:"username"`   // Jellyfin only (display)
-	DeviceID string     `mapstructure:"device_id" yaml:"device_id"` // Unique per-install device identifier
+	Type             SourceType `mapstructure:"type"               yaml:"type"`               // "plex" or "jellyfin"
+	URL              string     `mapstructure:"url"                yaml:"url"`                // Server URL
+	Token            string     `mapstructure:"token"              yaml:"token"`              // Plex server token OR Jellyfin API key
+	PlexAccountToken string     `mapstructure:"plex_account_token" yaml:"plex_account_token"` // Plex account token used for discovery
+	UserID           string     `mapstructure:"user_id"            yaml:"user_id"`            // Jellyfin only
+	Username         string     `mapstructure:"username"           yaml:"username"`           // Jellyfin only (display)
+	DeviceID         string     `mapstructure:"device_id"          yaml:"device_id"`          // Unique per-install device identifier
 }
 
 // PlayerConfig holds media player configuration
+type SkipConfig struct {
+	IntroWindowSeconds  int    `mapstructure:"intro_window_seconds" json:"intro_window_seconds"`
+	AnalysisAtStartup   bool   `mapstructure:"analysis_at_startup" json:"analysis_at_startup"`
+	Intro               string `mapstructure:"intro" json:"intro"`
+	Outro               string `mapstructure:"outro" json:"outro"`
+	Key                 string `mapstructure:"key" json:"key"`
+	UndoKey             string `mapstructure:"undo_key" json:"undo_key"`
+	ChaptersWhenMissing bool   `mapstructure:"chapters_when_missing" json:"chapters_when_missing"`
+}
+
+func DefaultSkipConfig() SkipConfig {
+	return SkipConfig{AnalysisAtStartup: true, Intro: "manual", Outro: "manual", Key: "Ctrl+x", UndoKey: "Alt+x", ChaptersWhenMissing: true}
+}
+
+func (s SkipConfig) Validate() error {
+	if s.IntroWindowSeconds != 0 && (s.IntroWindowSeconds < 30 || s.IntroWindowSeconds > 900) {
+		return fmt.Errorf("player.skip.intro_window_seconds must be 0 (default) or 30-900")
+	}
+	for _, mode := range []string{s.Intro, s.Outro} {
+		if mode != "off" && mode != "manual" && mode != "auto" {
+			return fmt.Errorf("player.skip mode must be off, manual, or auto")
+		}
+	}
+	if strings.TrimSpace(s.Key) == "" || strings.TrimSpace(s.UndoKey) == "" || s.Key == s.UndoKey {
+		return fmt.Errorf("player.skip keys must be nonempty and different")
+	}
+	return nil
+}
+
 type PlayerConfig struct {
-	Command   string   `mapstructure:"command"`
-	Args      []string `mapstructure:"args"`
-	StartFlag string   `mapstructure:"start_flag"` // e.g., "--start=%d" or "--start-time=%d"
+	Skip      SkipConfig `mapstructure:"skip"`
+	Command   string     `mapstructure:"command"`
+	Args      []string   `mapstructure:"args"`
+	StartFlag string     `mapstructure:"start_flag"` // e.g., "--start=%d" or "--start-time=%d"
 }
 
 // UIConfig holds UI configuration
 type UIConfig struct {
-	ShowWatchStatus   bool `mapstructure:"show_watch_status"`   // Show watched/unwatched/in-progress indicators
-	ShowLibraryCounts bool `mapstructure:"show_library_counts"` // Keep library item counts visible after sync
-	HideWatched       bool `mapstructure:"hide_watched"`        // Hide items that are already watched
-	Autoplay          bool `mapstructure:"autoplay"`            // Automatically play the next episode
-	PlayNextOnSelect  bool `mapstructure:"play_next_on_select"` // Play the next episode when selecting a show
+	ShowWatchStatus   bool   `mapstructure:"show_watch_status"`   // Show watched/unwatched/in-progress indicators
+	ShowLibraryCounts bool   `mapstructure:"show_library_counts"` // Keep library item counts visible after sync
+	HideWatched       bool   `mapstructure:"hide_watched"`        // Hide items that are already watched
+	Autoplay          bool   `mapstructure:"autoplay"`            // Automatically play the next episode
+	PlayNextOnSelect  bool   `mapstructure:"play_next_on_select"` // Play the next episode when selecting a show
+	Theme             string `mapstructure:"theme"`               // Active colour theme name
 }
 
 // LoggingConfig holds logging configuration
@@ -67,12 +99,14 @@ func DefaultConfig() *Config {
 	return &Config{
 		CurrentProfile: "default",
 		Profiles:       make(map[string]ProfileConfig),
+		Player:         PlayerConfig{Skip: DefaultSkipConfig()},
 		UI: UIConfig{
 			ShowWatchStatus:   true,
 			ShowLibraryCounts: false,
 			HideWatched:       false,
 			Autoplay:          true,
 			PlayNextOnSelect:  true,
+			Theme:             "plex",
 		},
 		Logging: LoggingConfig{
 			File:  defaultLogPath(),
@@ -121,10 +155,12 @@ func LoadConfig() (*Config, error) {
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	viper.AutomaticEnv()
 	for _, key := range []string{
-		"server.type", "server.url", "server.token", "server.user_id",
+		"server.type", "server.url", "server.token", "server.plex_account_token", "server.user_id",
 		"server.username", "server.device_id",
 		"player.command", "player.args", "player.start_flag",
-		"ui.show_watch_status", "ui.show_library_counts", "ui.hide_watched", "ui.autoplay",
+		"player.skip.intro_window_seconds", "player.skip.analysis_at_startup", "player.skip.intro", "player.skip.outro", "player.skip.key", "player.skip.undo_key", "player.skip.chapters_when_missing",
+		"ui.show_watch_status", "ui.show_library_counts", "ui.hide_watched", "ui.autoplay", "ui.play_next_on_select",
+		"ui.theme",
 		"logging.file", "logging.level", "current_profile",
 	} {
 		_ = viper.BindEnv(key)
@@ -145,6 +181,9 @@ func LoadConfig() (*Config, error) {
 
 	if err := viper.Unmarshal(cfg); err != nil {
 		return nil, fmt.Errorf("error parsing config: %w", err)
+	}
+	if err := cfg.Player.Skip.Validate(); err != nil {
+		return nil, err
 	}
 	cfg.applyCurrentProfile()
 
@@ -194,6 +233,7 @@ func SaveConfig(cfg *Config) error {
 	viper.Set("server.type", cfg.Server.Type)
 	viper.Set("server.url", cfg.Server.URL)
 	viper.Set("server.token", cfg.Server.Token)
+	viper.Set("server.plex_account_token", cfg.Server.PlexAccountToken)
 	viper.Set("server.user_id", cfg.Server.UserID)
 	viper.Set("server.username", cfg.Server.Username)
 	viper.Set("server.device_id", cfg.Server.DeviceID)
@@ -202,6 +242,13 @@ func SaveConfig(cfg *Config) error {
 	viper.Set("player.command", cfg.Player.Command)
 	viper.Set("player.args", cfg.Player.Args)
 	viper.Set("player.start_flag", cfg.Player.StartFlag)
+	viper.Set("player.skip.intro_window_seconds", cfg.Player.Skip.IntroWindowSeconds)
+	viper.Set("player.skip.analysis_at_startup", cfg.Player.Skip.AnalysisAtStartup)
+	viper.Set("player.skip.intro", cfg.Player.Skip.Intro)
+	viper.Set("player.skip.outro", cfg.Player.Skip.Outro)
+	viper.Set("player.skip.key", cfg.Player.Skip.Key)
+	viper.Set("player.skip.undo_key", cfg.Player.Skip.UndoKey)
+	viper.Set("player.skip.chapters_when_missing", cfg.Player.Skip.ChaptersWhenMissing)
 
 	// Set UI fields
 	viper.Set("ui.show_watch_status", cfg.UI.ShowWatchStatus)
@@ -209,6 +256,7 @@ func SaveConfig(cfg *Config) error {
 	viper.Set("ui.hide_watched", cfg.UI.HideWatched)
 	viper.Set("ui.autoplay", cfg.UI.Autoplay)
 	viper.Set("ui.play_next_on_select", cfg.UI.PlayNextOnSelect)
+	viper.Set("ui.theme", cfg.UI.Theme)
 
 	// Set logging fields
 	viper.Set("logging.file", cfg.Logging.File)
@@ -281,6 +329,7 @@ func ClearServerConfig() error {
 	viper.Set("server.type", "")
 	viper.Set("server.url", "")
 	viper.Set("server.token", "")
+	viper.Set("server.plex_account_token", "")
 	viper.Set("server.user_id", "")
 	viper.Set("server.username", "")
 

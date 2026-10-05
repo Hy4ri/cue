@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/SuperCoolPencil/cue/internal/browser"
 	"github.com/SuperCoolPencil/cue/internal/config"
 	"github.com/SuperCoolPencil/cue/internal/domain"
 	"github.com/SuperCoolPencil/cue/internal/library"
@@ -200,14 +201,14 @@ func WaitForPlaybackCmd(resultCh <-chan player.ScrobbleResult) tea.Cmd {
 }
 
 // ListenForPlaybackStatusCmd waits for status updates during playback
-func ListenForPlaybackStatusCmd(statusCh <-chan string) tea.Cmd {
+func ListenForPlaybackStatusCmd(statusCh <-chan player.PlaybackStatus) tea.Cmd {
 	return func() tea.Msg {
-		msg, ok := <-statusCh
+		status, ok := <-statusCh
 		if !ok {
 			return nil
 		}
 		return PlaybackStatusMsg{
-			Message:  msg,
+			Status:   status,
 			StatusCh: statusCh,
 		}
 	}
@@ -529,9 +530,24 @@ func DirectPlayShowCmd(svc mediaserver.MediaSource, playerSvc *player.Service, s
 			return ErrMsg{Err: domain.ErrItemNotFound, Context: "finding next episode to play"}
 		}
 
-		// Return a command that plays the found episode
-		return PlayItemCmd(playerSvc, *episode, episode.ShouldResume(), autoplay)()
+		// Build the full playlist so the player can autoplay subsequent episodes,
+		// matching the behaviour of starting playback from the episode menu.
+		playlist := buildEpisodePlaylist(episodes)
+		return PlayItemCmd(playerSvc, *episode, episode.ShouldResume(), autoplay, playlist...)()
 	}
+}
+
+// buildEpisodePlaylist converts a slice of episode pointers to a flat slice of
+// domain.MediaItem values suitable for passing as a playlist to PlayItemCmd.
+// Nil pointers are silently skipped.
+func buildEpisodePlaylist(episodes []*domain.MediaItem) []domain.MediaItem {
+	playlist := make([]domain.MediaItem, 0, len(episodes))
+	for _, ep := range episodes {
+		if ep != nil {
+			playlist = append(playlist, *ep)
+		}
+	}
+	return playlist
 }
 
 // LoadPlaylistModalDataCmd loads data for the playlist management modal
@@ -586,5 +602,25 @@ func RemoveFromQueueCmd(svc *playlist.Service, itemID string) tea.Cmd {
 			return QueueUpdatedMsg{Error: err}
 		}
 		return QueueUpdatedMsg{Message: "Removed from queue"}
+	}
+}
+
+// OpenInBrowserCmd resolves the item's web URL and opens it in the default browser.
+func OpenInBrowserCmd(client mediaserver.MediaSource, itemID string) tea.Cmd {
+	return func() tea.Msg {
+		if client == nil {
+			return StatusMsg{Message: "Error: Media server client unavailable", IsError: true}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		webURL, err := client.GetWebURL(ctx, itemID)
+		if err != nil {
+			return StatusMsg{Message: "Error getting web URL: " + err.Error(), IsError: true}
+		}
+		if err := browser.OpenURL(webURL); err != nil {
+			return StatusMsg{Message: "Error opening browser: " + err.Error(), IsError: true}
+		}
+		return StatusMsg{Message: "Opened in browser"}
 	}
 }

@@ -154,3 +154,13 @@ func TestFormatJellyfinDate(t *testing.T) {
 		}
 	}
 }
+
+func TestLastPlayedMappedForMoviesAndEpisodes(t *testing.T) {
+	source := Item{UserData: &UserData{LastPlayedDate: "2026-10-04T00:12:34.123Z"}}
+	want := time.Date(2026, 10, 4, 0, 12, 34, 0, time.UTC).Unix()
+	for _, item := range []domain.MediaItem{mapMovie(source, ""), mapEpisode(source, "")} {
+		if item.LastPlayedAt != want {
+			t.Fatalf("last played=%d want %d", item.LastPlayedAt, want)
+		}
+	}
+}

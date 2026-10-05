@@ -86,8 +86,8 @@ func NewListColumn(colType ColumnType, title string) *ListColumn {
 	ti := textinput.New()
 	ti.Placeholder = "type to filter..."
 	ti.Prompt = "/ "
-	ti.PromptStyle = styles.FilterPromptStyle
-	ti.TextStyle = styles.FilterStyle
+	ti.PromptStyle = styles.FilterPromptStyle()
+	ti.TextStyle = styles.FilterStyle()
 
 	return &ListColumn{
 		columnType:    colType,
@@ -212,9 +212,9 @@ func (c *ListColumn) Update(msg tea.Msg) (*ListColumn, tea.Cmd) {
 }
 
 func (c *ListColumn) View() string {
-	style := styles.InactiveBorder
+	style := styles.InactiveBorder()
 	if c.focused && !c.inspector.Focused {
-		style = styles.ActiveBorder
+		style = styles.ActiveBorder()
 	}
 
 	content := c.renderContent()
@@ -280,6 +280,19 @@ func (c *ListColumn) SelectedItem() interface{} {
 	default:
 		return c.items[idx]
 	}
+}
+
+// SelectedItemID returns the server ID of the currently selected item in the column.
+func (c *ListColumn) SelectedItemID() string {
+	count := c.ItemCount()
+	if count == 0 || c.cursor >= count {
+		return ""
+	}
+	idx := c.mapIndex(c.cursor)
+	if idx >= len(c.items) {
+		return ""
+	}
+	return c.items[idx].GetID()
 }
 
 func (c *ListColumn) SelectedIndex() int {
@@ -377,9 +390,13 @@ func (c *ListColumn) SetItems(rawItems interface{}) {
 			c.items = WrapPlaylistItems(v)
 		case c.columnType == ColumnTypeEpisodes:
 			c.items = WrapEpisodes(v)
+		case c.columnType == ColumnTypeMixed:
+			// Virtual mixed views such as Continue Watching must retain their
+			// identity even when the current response happens to contain only
+			// episodes or only movies. Poster selection and row rendering both
+			// rely on that identity.
+			c.items = WrapMovies(v)
 		case mediaItemsAreMixed(v):
-			// Continue Watching can contain both movies and episodes. Keep it mixed
-			// instead of selecting a renderer based solely on the first item.
 			c.items = WrapMovies(v)
 			c.columnType = ColumnTypeMixed
 		case len(v) > 0 && v[0].Type == domain.MediaTypeEpisode:
@@ -406,8 +423,9 @@ func (c *ListColumn) SetItems(rawItems interface{}) {
 		}
 	}
 
-	// Apply default sort for sortable column types
-	if c.columnSortable() {
+	// Continue Watching keeps the server/service activity order instead of
+	// applying the alphabetical default used by library columns.
+	if c.columnSortable() && !c.showShowTitle {
 		if c.columnType == ColumnTypeEpisodes {
 			c.sortField = SortEpisodeNum
 			c.sortDir = SortAsc
@@ -1075,20 +1093,20 @@ func (c *ListColumn) renderContent() string {
 	if c.refreshing {
 		title = c.title + " " + styles.SpinnerFrames[c.spinnerFrame%len(styles.SpinnerFrames)]
 	}
-	titleLine := styles.AccentStyle.Render(styles.Truncate(title, itemWidth))
+	titleLine := styles.AccentStyle().Render(styles.Truncate(title, itemWidth))
 
 	// Loading state
 	if c.loading {
 		spinner := styles.SpinnerFrames[c.spinnerFrame%len(styles.SpinnerFrames)]
-		loadingLine := styles.DimStyle.Render(spinner + " Loading...")
+		loadingLine := styles.DimStyle().Render(spinner + " Loading...")
 		return titleLine + "\n" + " " + "\n" + loadingLine + "\n" + " "
 	}
 
 	count := c.ItemCount()
 	if count == 0 {
-		emptyMsg := styles.DimStyle.Render("No items")
+		emptyMsg := styles.DimStyle().Render("No items")
 		if c.filterActive && c.filterQuery != "" {
-			emptyMsg = styles.DimStyle.Render("No matches")
+			emptyMsg = styles.DimStyle().Render("No matches")
 		}
 		content := titleLine + "\n" + " " + "\n" + emptyMsg + "\n" + " "
 		// Add filter bar if active so user can see what they're typing
@@ -1115,13 +1133,13 @@ func (c *ListColumn) renderContent() string {
 	// ALWAYS reserve space for header (even if empty) to prevent layout shifts
 	header := " "
 	if c.offset > 0 {
-		header = styles.DimStyle.Render("↑ more")
+		header = styles.DimStyle().Render("↑ more")
 	}
 
 	// ALWAYS reserve space for footer (even if empty)
 	footer := " "
 	if end < count {
-		footer = styles.DimStyle.Render("↓ more")
+		footer = styles.DimStyle().Render("↓ more")
 	}
 
 	content := strings.Join(lines, "\n")
@@ -1186,16 +1204,16 @@ func (c *ListColumn) renderLibraryItem(lib domain.Library, selected bool, width 
 	case StatusSyncing:
 		spinner := styles.SpinnerFrames[c.spinnerFrame%len(styles.SpinnerFrames)]
 		prefix = spinner + " "
-		prefixFg = styles.PlexOrange
+		prefixFg = styles.ActiveTheme().Accent
 	case StatusSynced:
 		prefix = "✓ "
-		prefixFg = styles.Green
+		prefixFg = styles.ActiveTheme().Success
 	case StatusError:
 		prefix = "✗ "
-		prefixFg = styles.Red
+		prefixFg = styles.ActiveTheme().Error
 	default:
 		prefix = "  "
-		prefixFg = styles.DimGray
+		prefixFg = styles.ActiveTheme().FgDim
 	}
 
 	title := lib.Name
@@ -1227,13 +1245,16 @@ func (c *ListColumn) renderMovieItem(item domain.MediaItem, selected bool, width
 	}
 
 	title := item.Title
-	if item.Year > 0 {
+	if item.Year > 0 && !strings.HasSuffix(item.Title, fmt.Sprintf("(%d)", item.Year)) {
 		title = fmt.Sprintf("%s (%d)", item.Title, item.Year)
 	}
 
 	// Available space: width - indicator(1) - space(1) - margins(2)
 	availableForTitle := width - 4
 	tag := c.sortTag(&item)
+	if tag == "" && c.showShowTitle {
+		tag = watchProgressTag(item)
+	}
 	if tag != "" {
 		availableForTitle -= len(tag) + 1
 	}
@@ -1260,7 +1281,7 @@ func (c *ListColumn) renderShowItem(show domain.Show, selected bool, width int) 
 	}
 
 	title := show.Title
-	if show.Year > 0 {
+	if show.Year > 0 && !strings.HasSuffix(show.Title, fmt.Sprintf("(%d)", show.Year)) {
 		title = fmt.Sprintf("%s (%d)", show.Title, show.Year)
 	}
 
@@ -1285,7 +1306,7 @@ func (c *ListColumn) renderShowItem(show domain.Show, selected bool, width int) 
 
 func (c *ListColumn) renderSeasonHeaderItem(h *SeasonHeader, selected bool, width int) string {
 	var arrow string
-	orange := styles.PlexOrange
+	orange := styles.ActiveTheme().Accent
 	if h.Loading {
 		arrow = styles.SpinnerFrames[c.spinnerFrame%len(styles.SpinnerFrames)]
 	} else if h.Expanded {
@@ -1308,7 +1329,7 @@ func (c *ListColumn) renderSeasonHeaderItem(h *SeasonHeader, selected bool, widt
 
 	watched := h.Season.EpisodeCount - h.Season.UnwatchedCount
 	progStr := fmt.Sprintf("%d/%d", watched, h.Season.EpisodeCount)
-	dimGray := styles.DimGray
+	dimGray := styles.ActiveTheme().FgDim
 
 	availableForTitle := width - 4 - len(arrow) - 1 - len(progStr) - 1
 	if availableForTitle < 5 {
@@ -1359,30 +1380,38 @@ func (c *ListColumn) renderEpisodeItem(item domain.MediaItem, selected bool, wid
 		indicatorChar = " "
 	}
 
-	// In Continue Watching, show the series name first: "Show - S01E05 Title"
+	// Continue Watching benefits from a more scannable hierarchy than a regular
+	// episode list: episode code, then show and episode title, with progress at
+	// the far edge of the row.
 	if c.showShowTitle && item.ShowTitle != "" {
-		title := fmt.Sprintf("%s - %s %s", item.ShowTitle, item.EpisodeCode(), item.Title)
-
-		availableForTitle := width - 4
 		tag := c.sortTag(&item)
+		if tag == "" {
+			tag = watchProgressTag(item)
+		}
+
+		code := "[" + item.EpisodeCode() + "]"
+		// margins(2), indicator+space(2), code+two spaces, and optional tag.
+		availableForTitle := width - 4 - len(code) - 2
 		if tag != "" {
 			availableForTitle -= len(tag) + 1
 		}
-		if availableForTitle < 5 {
-			availableForTitle = 5
-		}
-		title = styles.Truncate(title, availableForTitle)
+		showTitle, episodeTitle := splitEpisodeTitles(item.ShowTitle, item.Title, availableForTitle)
+		dimGray := styles.ActiveTheme().FgDim
 
+		accentColor := styles.ActiveTheme().Accent
 		parts := appendSortTag([]styles.RowPart{
 			{Text: indicatorChar, Foreground: &indicatorFg},
-			{Text: " " + title, Foreground: nil},
+			{Text: " " + code, Foreground: &accentColor},
+			{Text: "  " + showTitle, Foreground: nil, Bold: true},
+			{Text: "  /  ", Foreground: &dimGray},
+			{Text: episodeTitle, Foreground: &dimGray},
 		}, tag, width)
 
 		return styles.RenderListRow(parts, selected, width)
 	}
 
 	code := item.EpisodeCode()
-	plexOrange := styles.PlexOrange
+	plexOrange := styles.ActiveTheme().Accent
 
 	// Available space: width - indicator(1) - space(1) - code - space(1) - margins(2)
 	availableForTitle := width - 4 - len(code) - 1
@@ -1412,7 +1441,7 @@ func (c *ListColumn) renderFilterBar(_ int) string {
 	// Show match count
 	countStr := ""
 	if c.filterQuery != "" {
-		countStr = styles.DimStyle.Render(fmt.Sprintf(" [%d/%d]", count, total))
+		countStr = styles.DimStyle().Render(fmt.Sprintf(" [%d/%d]", count, total))
 	}
 
 	return input + countStr
@@ -1422,11 +1451,11 @@ func (c *ListColumn) renderFilterBar(_ int) string {
 func watchIndicator(status domain.WatchStatus) (string, lipgloss.Color) {
 	switch status {
 	case domain.WatchStatusWatched:
-		return styles.PlayedChar, styles.Green
+		return styles.PlayedChar, styles.ActiveTheme().Success
 	case domain.WatchStatusInProgress:
-		return styles.InProgressChar, styles.PlexOrange
+		return styles.InProgressChar, styles.ActiveTheme().Accent
 	default:
-		return styles.UnplayedChar, styles.PlexOrange
+		return styles.UnplayedChar, styles.ActiveTheme().Accent
 	}
 }
 
@@ -1435,18 +1464,18 @@ func mediaItemWatchIndicator(item domain.MediaItem) (string, lipgloss.Color) {
 	status := item.WatchStatus()
 	switch status {
 	case domain.WatchStatusWatched:
-		return styles.PlayedChar, styles.Green
+		return styles.PlayedChar, styles.ActiveTheme().Success
 	case domain.WatchStatusInProgress:
-		return styles.InProgressChar, styles.PlexOrange
+		return styles.InProgressChar, styles.ActiveTheme().Accent
 	default:
-		return styles.UnplayedChar, styles.PlexOrange
+		return styles.UnplayedChar, styles.ActiveTheme().Accent
 	}
 }
 
 func (c *ListColumn) renderPlaylistItem(playlist domain.Playlist, selected bool, width int) string {
 	// Playlist icon and count
 	prefix := "▶ "
-	prefixFg := styles.PlexOrange
+	prefixFg := styles.ActiveTheme().Accent
 
 	title := playlist.Title
 	countStr := fmt.Sprintf(" (%d)", playlist.ItemCount)
@@ -1458,7 +1487,7 @@ func (c *ListColumn) renderPlaylistItem(playlist domain.Playlist, selected bool,
 	}
 	title = styles.Truncate(title, availableForTitle)
 
-	dimGray := styles.DimGray
+	dimGray := styles.ActiveTheme().FgDim
 	parts := []styles.RowPart{
 		{Text: prefix, Foreground: &prefixFg},
 		{Text: title, Foreground: nil},
@@ -1481,7 +1510,7 @@ func (c *ListColumn) renderPlaylistMediaItem(item domain.MediaItem, selected boo
 	if item.Type == domain.MediaTypeEpisode && item.ShowTitle != "" {
 		// Show episode with show context: "Show - S01E05 Title"
 		title = fmt.Sprintf("%s - %s %s", item.ShowTitle, item.EpisodeCode(), item.Title)
-	} else if item.Year > 0 {
+	} else if item.Year > 0 && !strings.HasSuffix(item.Title, fmt.Sprintf("(%d)", item.Year)) {
 		title = fmt.Sprintf("%s (%d)", item.Title, item.Year)
 	}
 
@@ -1509,18 +1538,24 @@ func (c *ListColumn) renderMixedItem(item domain.ListItem, selected bool, width 
 		indicatorChar = " "
 	}
 
-	// Build title with year. A Continue Watching column can contain both
-	// movies and episodes, so format episodes with their series context here too.
+	// A Continue Watching column can contain both movies and episodes. Give
+	// episodes their own compact, progress-aware layout instead of flattening
+	// all of their context into a single title.
 	title := item.GetTitle()
 	if mediaItem, ok := item.(*domain.MediaItem); ok && c.showShowTitle && mediaItem.Type == domain.MediaTypeEpisode && mediaItem.ShowTitle != "" {
-		title = fmt.Sprintf("%s - %s %s", mediaItem.ShowTitle, mediaItem.EpisodeCode(), mediaItem.Title)
-	} else if year := item.GetYear(); year > 0 {
+		return c.renderEpisodeItem(*mediaItem, selected, width)
+	} else if year := item.GetYear(); year > 0 && !strings.HasSuffix(title, fmt.Sprintf("(%d)", year)) {
 		title = fmt.Sprintf("%s (%d)", title, year)
 	}
 
 	// Available space: width - indicator(1) - space(1) - margins(2)
 	availableForTitle := width - 4
 	tag := c.sortTag(item)
+	if tag == "" && c.showShowTitle {
+		if media, ok := item.(*domain.MediaItem); ok {
+			tag = watchProgressTag(*media)
+		}
+	}
 	if tag != "" {
 		availableForTitle -= len(tag) + 1
 	}
@@ -1535,6 +1570,33 @@ func (c *ListColumn) renderMixedItem(item domain.ListItem, selected bool, width 
 	}, tag, width)
 
 	return styles.RenderListRow(parts, selected, width)
+}
+
+// watchProgressTag returns a compact percentage for resumable media. It is
+// intentionally omitted when duration data is unavailable.
+func watchProgressTag(item domain.MediaItem) string {
+	if item.Duration <= 0 || item.ViewOffset <= 0 {
+		return ""
+	}
+
+	percent := int(float64(item.ViewOffset) / float64(item.Duration) * 100)
+	percent = min(99, max(1, percent))
+	return fmt.Sprintf("%d%%", percent)
+}
+
+// splitEpisodeTitles keeps the show visually dominant while allowing a short
+// episode title to use space the show does not need.
+func splitEpisodeTitles(show, episode string, width int) (string, string) {
+	const separatorWidth = 5 // "  /  "
+	available := max(2, width-separatorWidth)
+	showWidth := min(len(show), max(1, available/2))
+	episodeWidth := available - showWidth
+	if episodeWidth > len(episode) {
+		showWidth = min(len(show), showWidth+episodeWidth-len(episode))
+		episodeWidth = available - showWidth
+	}
+
+	return styles.Truncate(show, showWidth), styles.Truncate(episode, max(1, episodeWidth))
 }
 
 // mediaItemsAreMixed reports whether a media slice contains more than one type.
@@ -1617,7 +1679,7 @@ func appendSortTag(parts []styles.RowPart, tag string, width int) []styles.RowPa
 	if gap < 1 {
 		gap = 1
 	}
-	dimGray := styles.DimGray
+	dimGray := styles.ActiveTheme().FgDim
 	return append(parts, styles.RowPart{Text: strings.Repeat(" ", gap) + tag, Foreground: &dimGray})
 }
 

@@ -76,6 +76,7 @@ type ImageTags struct {
 
 // UserData contains user-specific data for an item (watch status, progress)
 type UserData struct {
+	LastPlayedDate        string `json:"LastPlayedDate,omitempty"`
 	PlaybackPositionTicks int64  `json:"PlaybackPositionTicks"` // Progress in 100-nanosecond units
 	PlayCount             int    `json:"PlayCount"`
 	IsFavorite            bool   `json:"IsFavorite"`

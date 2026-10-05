@@ -79,17 +79,28 @@ func (c *Client) FetchIdentity(ctx context.Context) error {
 		return err
 	}
 
-	// Parse XML response
-	var identity struct {
+	// Try JSON unmarshaling first (since doRequest sends Accept: application/json)
+	var jsonResp struct {
+		MediaContainer struct {
+			MachineIdentifier string `json:"machineIdentifier"`
+		} `json:"MediaContainer"`
+	}
+	if err := json.Unmarshal(body, &jsonResp); err == nil && jsonResp.MediaContainer.MachineIdentifier != "" {
+		c.machineIdentifier = jsonResp.MediaContainer.MachineIdentifier
+		return nil
+	}
+
+	// Fallback to XML unmarshaling
+	var xmlResp struct {
 		XMLName           xml.Name `xml:"MediaContainer"`
 		MachineIdentifier string   `xml:"machineIdentifier,attr"`
 	}
-	if err := xml.Unmarshal(body, &identity); err != nil {
-		return err
+	if err := xml.Unmarshal(body, &xmlResp); err == nil && xmlResp.MachineIdentifier != "" {
+		c.machineIdentifier = xmlResp.MachineIdentifier
+		return nil
 	}
 
-	c.machineIdentifier = identity.MachineIdentifier
-	return nil
+	return fmt.Errorf("could not parse machineIdentifier from /identity response")
 }
 
 // ensureIdentity ensures the server's machineIdentifier is available
@@ -425,7 +436,7 @@ func (c *Client) Search(ctx context.Context, query string) ([]*domain.MediaItem,
 // tracks for an item.
 func (c *Client) ResolvePlayable(ctx context.Context, itemID string) (domain.PlayableMedia, error) {
 	path := fmt.Sprintf("/library/metadata/%s", itemID)
-	body, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	body, err := c.doRequest(ctx, http.MethodGet, path, url.Values{"includeMarkers": {"1"}})
 	if err != nil {
 		return domain.PlayableMedia{}, err
 	}
@@ -456,7 +467,19 @@ func (c *Client) ResolvePlayable(ctx context.Context, itemID string) (domain.Pla
 		c.logger.Debug("resolved external subtitles", "itemID", itemID, "count", len(subs))
 	}
 
-	return domain.PlayableMedia{URL: mediaURL, Subtitles: subs}, nil
+	segments := make([]domain.SkipSegment, 0, len(m.Markers))
+	for _, marker := range m.Markers {
+		kind := marker.Type
+		if kind == "credits" {
+			kind = "outro"
+		}
+		segments = append(segments, domain.SkipSegment{Kind: kind, StartMs: marker.Start, EndMs: marker.End, Origin: "plex"})
+	}
+	duration := part.Duration
+	if duration == 0 {
+		duration = m.Duration
+	}
+	return domain.PlayableMedia{URL: mediaURL, Subtitles: subs, SourceID: fmt.Sprint(part.ID), Revision: fmt.Sprintf("%d:%d", part.Size, m.UpdatedAt), DurationMs: int64(duration), Segments: domain.ValidSkipSegments(segments, int64(duration))}, nil
 }
 
 // collectExternalSubtitles extracts external subtitle streams from a Plex Part.
@@ -818,4 +841,14 @@ func (c *Client) GetContinueWatching(ctx context.Context) ([]*domain.MediaItem, 
 	}
 
 	return MapVideoItems(container.Metadata, c.baseURL), nil
+}
+
+// GetWebURL returns the web interface URL for a given item in Plex
+func (c *Client) GetWebURL(ctx context.Context, itemID string) (string, error) {
+	_ = c.ensureIdentity(ctx)
+	key := url.QueryEscape("/library/metadata/" + itemID)
+	if c.machineIdentifier != "" {
+		return fmt.Sprintf("%s/web/index.html#!/server/%s/details?key=%s", c.baseURL, c.machineIdentifier, key), nil
+	}
+	return fmt.Sprintf("%s/web/index.html#!/details?key=%s", c.baseURL, key), nil
 }

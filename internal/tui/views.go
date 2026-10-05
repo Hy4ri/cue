@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/SuperCoolPencil/cue/internal/domain"
 	"github.com/SuperCoolPencil/cue/internal/tui/components"
@@ -15,7 +16,7 @@ const posterPlacementMarker = "\x00"
 // RenderSpinner renders a loading spinner
 func RenderSpinner(frame int) string {
 	frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-	return styles.SpinnerStyle.Render(frames[frame%len(frames)])
+	return styles.SpinnerStyle().Render(frames[frame%len(frames)])
 }
 
 // View renders the application
@@ -198,7 +199,7 @@ func (m Model) renderLibraryColumn(libCol *components.ListColumn, width, height 
 }
 
 func (m Model) renderPosterPreview(width, height int) string {
-	frameW, frameH := styles.InactiveBorder.GetFrameSize()
+	frameW, frameH := styles.InactiveBorder().GetFrameSize()
 	contentWidth := max(1, width-frameW-1)
 	contentHeight := max(1, height-frameH)
 
@@ -210,13 +211,13 @@ func (m Model) renderPosterPreview(width, height int) string {
 		poster = posterPlacementMarker + m.posterContent
 	}
 	if poster == "" {
-		poster = styles.DimStyle.Render("No preview available")
+		poster = styles.DimStyle().Render("No preview available")
 	}
 
-	title := styles.AccentStyle.Render(styles.Truncate("Preview", contentWidth))
+	title := styles.AccentStyle().Render(styles.Truncate("Preview", contentWidth))
 	bodyHeight := max(1, contentHeight-2)
 	body := lipgloss.Place(contentWidth, bodyHeight, lipgloss.Center, lipgloss.Center, poster)
-	rendered := styles.InactiveBorder.
+	rendered := styles.InactiveBorder().
 		Width(width - frameW).
 		Height(contentHeight).
 		Render(styles.InsetLeft(title + "\n\n" + body))
@@ -277,6 +278,14 @@ func (m Model) renderSplitColumn(col *components.ListColumn, colWidth, listHeigh
 	}
 
 	insp.SetItem(selected)
+	if season := introSeason(selected); season != nil && m.AppConfig != nil {
+		key := strings.Join([]string{m.AppConfig.Server.URL, m.AppConfig.Server.UserID, season.ShowID, season.ID}, "\x00")
+		if key == m.introStatusKey {
+			insp.SetIntroStatus(m.introStatusLabel)
+		} else {
+			insp.SetIntroStatus("Checking…")
+		}
+	}
 	infoView := insp.View()
 
 	return lipgloss.JoinVertical(lipgloss.Left, listView, infoView)
@@ -284,14 +293,23 @@ func (m Model) renderSplitColumn(col *components.ListColumn, colWidth, listHeigh
 
 // renderFooter renders a single-line minimal footer
 func (m Model) renderFooter() string {
+	// Right side: "? help" hint. Define this before the now-playing text so
+	// the playback summary can use all remaining footer space.
+	right := styles.RenderKeyHint("?", "help")
+
 	// Left side: now-playing takes priority, then loading/status
 	var left string
 	if m.isPlayingTitle != "" {
 		// Pulsing indicator via spinner frame
 		frames := []string{"▶", "▷"}
-		icon := styles.AccentStyle.Render(frames[m.SpinnerFrame/5%len(frames)])
-		title := styles.Truncate(m.isPlayingTitle, 40)
-		left = icon + " " + styles.DimStyle.Render("Now Playing: "+title)
+		icon := styles.AccentStyle().Render(frames[m.SpinnerFrame/5%len(frames)])
+		prefix := icon + " " + styles.DimStyle().Render("Playing: ")
+		titleWidth := 60
+		if m.Width > 0 {
+			titleWidth = max(0, m.Width-lipgloss.Width(right)-lipgloss.Width(prefix)-1)
+		}
+		title := styles.Truncate(m.isPlayingTitle, titleWidth)
+		left = prefix + styles.DimStyle().Render(title)
 	} else if m.Loading {
 		statusText := "Loading..."
 
@@ -326,31 +344,28 @@ func (m Model) renderFooter() string {
 			}
 		}
 
-		left = RenderSpinner(m.SpinnerFrame) + " " + styles.DimStyle.Render(statusText)
+		left = RenderSpinner(m.SpinnerFrame) + " " + styles.DimStyle().Render(statusText)
 	} else if m.StatusMsg != "" {
 		if m.StatusIsErr {
-			left = styles.ErrorStyle.Render(m.StatusMsg)
+			left = styles.ErrorStyle().Render(m.StatusMsg)
 		} else {
-			left = styles.DimStyle.Render(m.StatusMsg)
+			left = styles.DimStyle().Render(m.StatusMsg)
 		}
 	} else {
-		left = styles.AccentStyle.Render("↑↓") + styles.DimStyle.Render(" navigate  ") +
-			styles.AccentStyle.Render("←→") + styles.DimStyle.Render(" back/expand")
+		left = styles.RenderKeyHint("↑↓", "navigate") + "  " + styles.RenderKeyHint("←→", "back/expand")
 	}
+	left = " " + left
 
 	// Center section: context-specific hints based on column type
 	var center string
 	if top := m.ColumnStack.Top(); top != nil {
 		switch top.ColumnType() {
 		case components.ColumnTypePlaylists:
-			center = styles.AccentStyle.Render("x") + styles.DimStyle.Render(" Delete")
+			center = styles.RenderKeyHint("x", "Delete")
 		case components.ColumnTypePlaylistItems:
-			center = styles.AccentStyle.Render("x") + styles.DimStyle.Render(" Remove")
+			center = styles.RenderKeyHint("x", "Remove")
 		}
 	}
-
-	// Right side: "? help" hint
-	right := styles.AccentStyle.Render("?") + styles.DimStyle.Render(" help")
 
 	// Layout: left + centered hints + right
 	leftWidth := lipgloss.Width(left)
@@ -409,6 +424,7 @@ func (m Model) renderHelp() string {
 	}
 
 	other := []helpEntry{
+		{"o", "Open in browser"},
 		{"r", "Refresh library"},
 		{"R", "Refresh all"},
 		{"q", "Quit"},
@@ -423,10 +439,10 @@ func (m Model) renderHelp() string {
 	colW := keyW + descW
 	totalW := colW*2 + gap
 
-	bg := lipgloss.NewStyle().Background(styles.SlateDark)
-	keyStyle := bg.Foreground(styles.PlexOrange).Width(keyW)
-	descStyle := bg.Foreground(styles.LightGray).Width(descW)
-	headerStyle := bg.Foreground(styles.PlexOrange).Bold(true).Width(colW)
+	bg := lipgloss.NewStyle().Background(styles.ActiveTheme().BgDark)
+	keyStyle := bg.Foreground(styles.ActiveTheme().Accent).Width(keyW)
+	descStyle := bg.Foreground(styles.ActiveTheme().FgMid).Width(descW)
+	headerStyle := bg.Foreground(styles.ActiveTheme().Accent).Bold(true).Width(colW)
 	gapStyle := bg.Width(gap)
 	fullRowStyle := bg.Width(totalW)
 
@@ -473,11 +489,11 @@ func (m Model) renderHelp() string {
 	}
 
 	footerStyle := lipgloss.NewStyle().
-		Foreground(styles.DimGray).
+		Foreground(styles.ActiveTheme().FgDim).
 		Italic(true).
 		Width(totalW).
 		Align(lipgloss.Center).
-		Background(styles.SlateDark).
+		Background(styles.ActiveTheme().BgDark).
 		MarginTop(1)
 
 	rows = append(rows, footerStyle.Render("Press any key to return"))
@@ -486,8 +502,8 @@ func (m Model) renderHelp() string {
 
 	modal := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(styles.PlexOrange).
-		Background(styles.SlateDark).
+		BorderForeground(styles.ActiveTheme().Accent).
+		Background(styles.ActiveTheme().BgDark).
 		Padding(1, 2).
 		Render(content)
 
@@ -497,58 +513,63 @@ func (m Model) renderHelp() string {
 }
 
 // renderConfirmDialog renders a centered confirmation modal with styled buttons
-func renderConfirmDialog(width, height int, title, body, yesLabel, noLabel, cancelLabel string, defaultIsNo bool) string {
-	modalWidth := 54
+func renderConfirmDialog(width, height int, title, body string, buttonLabels []string, focusedIdx int) string {
+	modalWidth := max(1, min(56, width-6))
 
-	bg := lipgloss.NewStyle().Background(styles.SlateDark)
+	bg := lipgloss.NewStyle().Background(styles.ActiveTheme().BgDark)
 
 	titleStyle := bg.
-		Foreground(styles.White).
+		Foreground(styles.ActiveTheme().FgBright).
 		Bold(true).
 		Width(modalWidth).
 		Align(lipgloss.Center)
 
 	bodyStyle := bg.
-		Foreground(styles.LightGray).
+		Foreground(styles.ActiveTheme().FgMid).
 		Width(modalWidth).
 		Align(lipgloss.Center).
 		MarginTop(1)
 
-	primaryStyle := lipgloss.NewStyle().
-		Foreground(styles.White).
-		Background(styles.PlexOrange).
-		Padding(0, 2).
-		Bold(true)
-
-	secondaryStyle := lipgloss.NewStyle().
-		Foreground(styles.LightGray).
-		Background(styles.SlateLight).
-		Padding(0, 2)
-
-	var yesBtn, noBtn string
-	if defaultIsNo {
-		yesBtn = secondaryStyle.Render(yesLabel)
-		noBtn = primaryStyle.Render(noLabel)
-	} else {
-		yesBtn = primaryStyle.Render(yesLabel)
-		noBtn = secondaryStyle.Render(noLabel)
-	}
-
+	var buttonList []string
 	btnGap := bg.Render("  ")
 
-	buttonList := []string{yesBtn, btnGap, noBtn}
-
-	if cancelLabel != "" {
-		cancelBtn := lipgloss.NewStyle().
-			Foreground(styles.DimGray).
-			Background(styles.SlateLight).
-			Padding(0, 2).
-			Render(cancelLabel)
-		buttonList = append(buttonList, btnGap, cancelBtn)
+	for i, label := range buttonLabels {
+		if i > 0 {
+			buttonList = append(buttonList, btnGap)
+		}
+		if i == focusedIdx {
+			btn := lipgloss.NewStyle().
+				Foreground(styles.ActiveTheme().FgBright).
+				Background(styles.ActiveTheme().Accent).
+				Padding(0, 2).
+				Bold(true).
+				Render("▸ " + label)
+			buttonList = append(buttonList, btn)
+		} else {
+			btn := lipgloss.NewStyle().
+				Foreground(styles.ActiveTheme().FgMid).
+				Background(styles.ActiveTheme().BgMid).
+				Padding(0, 2).
+				Render("  " + label)
+			buttonList = append(buttonList, btn)
+		}
 	}
 
 	buttons := lipgloss.JoinHorizontal(lipgloss.Top, buttonList...)
 
+	if lipgloss.Width(buttons) > modalWidth {
+		// Stack actions in narrow terminals instead of overflowing the modal.
+		var rows []string
+		for i, label := range buttonLabels {
+			buttonStyle := lipgloss.NewStyle().Foreground(styles.ActiveTheme().FgMid).Background(styles.ActiveTheme().BgMid).Width(modalWidth).Align(lipgloss.Center)
+			if i == focusedIdx {
+				buttonStyle = buttonStyle.Foreground(styles.ActiveTheme().FgBright).Background(styles.ActiveTheme().Accent).Bold(true)
+				label = "▸ " + label
+			}
+			rows = append(rows, buttonStyle.Render(styles.Truncate(label, modalWidth)))
+		}
+		buttons = lipgloss.JoinVertical(lipgloss.Left, rows...)
+	}
 	buttonRow := bg.
 		Width(modalWidth).
 		Align(lipgloss.Center).
@@ -563,8 +584,8 @@ func renderConfirmDialog(width, height int, title, body, yesLabel, noLabel, canc
 
 	modal := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(styles.PlexOrange).
-		Background(styles.SlateDark).
+		BorderForeground(styles.ActiveTheme().Accent).
+		Background(styles.ActiveTheme().BgDark).
 		Padding(1, 2).
 		Render(content)
 
@@ -576,21 +597,41 @@ func renderConfirmDialog(width, height int, title, body, yesLabel, noLabel, canc
 func (m Model) renderResumeConfirmation() string {
 	title := "Resume Playback?"
 	body := "Selected item"
-	if m.pendingPlayback != nil {
-		body = styles.Truncate(m.pendingPlayback.Title, 38)
+	if item := m.pendingPlayback; item != nil {
+		lines := []string{}
+		if item.Type == domain.MediaTypeEpisode {
+			if item.ShowTitle != "" {
+				lines = append(lines, styles.Truncate(item.ShowTitle, max(1, min(56, m.Width-6))))
+			}
+			episode := fmt.Sprintf("S%02dE%02d", item.SeasonNum, item.EpisodeNum)
+			if item.Title != "" {
+				episode += " · " + item.Title
+			}
+			lines = append(lines, styles.Truncate(episode, max(1, min(56, m.Width-6))))
+		} else {
+			lines = append(lines, styles.Truncate(item.Title, max(1, min(56, m.Width-6))))
+		}
+		position := resumeTimestamp(item.ViewOffset)
+		if item.Duration > 0 {
+			position += " / " + resumeTimestamp(item.Duration)
+		}
+		lines = append(lines, "Resume from "+position)
+		body = strings.Join(lines, "\n")
 	}
 
-	return renderConfirmDialog(m.Width, m.Height,
-		title, body,
-		"Y  Resume", "N  Start Over", "Esc  Cancel", false)
+	// Plain labels let the button own its foreground/background throughout.
+	// Nested RenderKeyHint ANSI resets previously broke the selection highlight.
+	buttons := []string{"Y Resume", "N Start Over", "Esc Cancel"}
+	return renderConfirmDialog(m.Width, m.Height, title, body, buttons, m.confirmFocusedIdx)
 }
 
 // renderLogoutConfirmation renders the logout confirmation modal
 func (m Model) renderLogoutConfirmation() string {
+	buttons := []string{"Y Yes", "N No"}
 	return renderConfirmDialog(m.Width, m.Height,
 		"Log Out?",
 		"This will clear your credentials,\nserver URL, and all cached data.",
-		"Y  Yes", "N  No", "", false)
+		buttons, m.confirmFocusedIdx)
 }
 
 // renderDeleteConfirmation renders the deletion confirmation modal
@@ -600,8 +641,17 @@ func (m Model) renderDeleteConfirmation() string {
 		itemTitle = styles.Truncate(m.pendingDelete.GetTitle(), 38)
 	}
 
+	buttons := []string{"Y Yes", "N No", "Esc Cancel"}
 	return renderConfirmDialog(m.Width, m.Height,
 		"Delete Local File?",
 		fmt.Sprintf("Are you sure you want to delete\n%s\nfrom the server? This action cannot be undone.", itemTitle),
-		"Y  Yes", "N  No", "Esc  Cancel", true)
+		buttons, m.confirmFocusedIdx)
+}
+
+func resumeTimestamp(value time.Duration) string {
+	seconds := int64(max(value, 0) / time.Second)
+	if seconds >= 3600 {
+		return fmt.Sprintf("%d:%02d:%02d", seconds/3600, (seconds/60)%60, seconds%60)
+	}
+	return fmt.Sprintf("%d:%02d", seconds/60, seconds%60)
 }

@@ -3,11 +3,53 @@ package tui
 import (
 	"bytes"
 	"testing"
+	"time"
 
 	"github.com/SuperCoolPencil/cue/internal/domain"
+	"github.com/SuperCoolPencil/cue/internal/library"
+	"github.com/SuperCoolPencil/cue/internal/store"
 	"github.com/SuperCoolPencil/cue/internal/tui/components"
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+func TestMarkWatchedUpdatesCachedAndVisibleState(t *testing.T) {
+	cache, err := store.NewLibraryStore("", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	movie := &domain.MediaItem{ID: "movie-1", Title: "Movie", Type: domain.MediaTypeMovie}
+	if err := cache.SaveMovies("movies", []*domain.MediaItem{movie}, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	column := components.NewListColumn(components.ColumnTypeMovies, "Movies")
+	column.SetItems([]*domain.MediaItem{movie})
+	stack := NewColumnStack()
+	stack.Push(column, 0)
+	m := Model{
+		ColumnStack:    stack,
+		Inspector:      components.NewInspector(),
+		LibraryService: library.NewService(nil, cache, nil),
+	}
+
+	model, _ := m.Update(MarkWatchedMsg{ItemID: movie.ID, Title: movie.Title, LibraryID: "movies"})
+	updated := model.(Model)
+	if visible := updated.ColumnStack.Top().SelectedMediaItem(); visible == nil || !visible.IsPlayed {
+		t.Fatal("visible movie was not marked watched")
+	}
+	cached, ok := cache.GetMovies("movies")
+	if !ok || len(cached) != 1 || !cached[0].IsPlayed {
+		t.Fatal("cached movie was not marked watched")
+	}
+}
+
+func TestPlaybackStatusTextIncludesEpisodeShowAndElapsedTime(t *testing.T) {
+	item := domain.MediaItem{Title: "Pilot", ShowTitle: "Example Show", Type: domain.MediaTypeEpisode, SeasonNum: 1, EpisodeNum: 1, Duration: 90 * time.Minute}
+	got := playbackStatusText(item, 65*time.Minute)
+	if got != "Example Show · S01E01 · Pilot · 01:05 / 01:30 · 72% · 25m left" {
+		t.Fatalf("playback status = %q", got)
+	}
+}
 
 func TestModelPropagateWatchStatus(t *testing.T) {
 	m := &Model{
@@ -234,6 +276,29 @@ func TestUpdateInspectorDoesNotRequestPosterForEpisodePane(t *testing.T) {
 	}
 	if m.hasPosterState() {
 		t.Fatal("episode pane retained a show poster")
+	}
+}
+
+func TestUpdateInspectorRequestsPosterForEpisodeOnlyContinueWatching(t *testing.T) {
+	col := components.NewListColumn(components.ColumnTypeMixed, "Continue Watching")
+	col.SetItems([]*domain.MediaItem{{
+		ID:           "episode-1",
+		Type:         domain.MediaTypeEpisode,
+		ShowThumbURL: "https://media/show-poster",
+	}})
+
+	m := Model{
+		ColumnStack: NewColumnStack(),
+		Inspector:   components.NewInspector(),
+		MediaClient: &posterClientStub{},
+	}
+	m.ColumnStack.Push(col, 0)
+
+	if cmd := m.updateInspector(); cmd == nil {
+		t.Fatal("expected a poster request for episode-only Continue Watching")
+	}
+	if m.posterItemID != "episode-1" {
+		t.Fatalf("poster item ID = %q", m.posterItemID)
 	}
 }
 

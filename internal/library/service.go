@@ -196,6 +196,7 @@ func (s *Service) FetchContinueWatching(ctx context.Context) ([]*domain.MediaIte
 		s.logger.Error("failed to fetch continue watching", "error", err)
 		return nil, err
 	}
+	sortContinueWatching(items)
 	s.logger.Debug("fetched continue watching", "count", len(items))
 	return items, nil
 }

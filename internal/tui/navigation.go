@@ -9,6 +9,7 @@ import (
 	"github.com/SuperCoolPencil/cue/internal/domain"
 	"github.com/SuperCoolPencil/cue/internal/search"
 	"github.com/SuperCoolPencil/cue/internal/tui/components"
+	"github.com/SuperCoolPencil/cue/internal/tui/styles"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -387,6 +388,23 @@ func (m *Model) drillVirtualLibrary(v domain.Library, cursor int) *drillResult {
 		items = m.configEntries()
 	case cacheLibraryID:
 		items = m.cacheEntries()
+	case "__config_theme__":
+		next := styles.NextThemeName(m.UIConfig.Theme)
+		styles.SetTheme(next)
+		m.UIConfig.Theme = next
+		if m.AppConfig != nil {
+			m.AppConfig.UI.Theme = next
+			if err := config.SaveConfig(m.AppConfig); err != nil {
+				m.StatusMsg = fmt.Sprintf("Failed to save config: %v", err)
+				m.StatusIsErr = true
+				return &drillResult{AwaitKind: AwaitNone}
+			}
+		}
+		if top := m.ColumnStack.Top(); top != nil {
+			top.SetItems(m.configEntries())
+		}
+		m.StatusMsg = "Theme: " + next
+		return &drillResult{AwaitKind: AwaitNone}
 	case "__config_watch__":
 		m.UIConfig.ShowWatchStatus = !m.UIConfig.ShowWatchStatus
 		if m.AppConfig != nil {
@@ -395,6 +413,12 @@ func (m *Model) drillVirtualLibrary(v domain.Library, cursor int) *drillResult {
 				m.StatusMsg = fmt.Sprintf("Failed to save config: %v", err)
 				m.StatusIsErr = true
 				return &drillResult{AwaitKind: AwaitNone}
+			}
+		}
+		// Apply to ALL columns in the stack so existing views update immediately
+		for i := 0; i < m.ColumnStack.Len(); i++ {
+			if col := m.ColumnStack.Get(i); col != nil {
+				col.SetShowWatchStatus(m.UIConfig.ShowWatchStatus)
 			}
 		}
 		if top := m.ColumnStack.Top(); top != nil {
@@ -410,6 +434,12 @@ func (m *Model) drillVirtualLibrary(v domain.Library, cursor int) *drillResult {
 				m.StatusMsg = fmt.Sprintf("Failed to save config: %v", err)
 				m.StatusIsErr = true
 				return &drillResult{AwaitKind: AwaitNone}
+			}
+		}
+		// Apply to ALL columns in the stack so existing views update immediately
+		for i := 0; i < m.ColumnStack.Len(); i++ {
+			if col := m.ColumnStack.Get(i); col != nil {
+				col.SetShowLibraryCounts(m.UIConfig.ShowLibraryCounts)
 			}
 		}
 		if top := m.ColumnStack.Top(); top != nil {
@@ -437,6 +467,34 @@ func (m *Model) drillVirtualLibrary(v domain.Library, cursor int) *drillResult {
 			top.SetItems(m.configEntries())
 		}
 		m.StatusMsg = "Saved hide watched setting"
+		return &drillResult{AwaitKind: AwaitNone}
+	case "__config_skip_intro__", "__config_skip_outro__":
+		if m.AppConfig != nil {
+			value := &m.AppConfig.Player.Skip.Intro
+			if v.ID == "__config_skip_outro__" {
+				value = &m.AppConfig.Player.Skip.Outro
+			}
+			switch *value {
+			case "off":
+				*value = "manual"
+			case "manual":
+				*value = "auto"
+			default:
+				*value = "off"
+			}
+			if err := config.SaveConfig(m.AppConfig); err != nil {
+				m.StatusMsg = fmt.Sprintf("Failed to save config: %v", err)
+				m.StatusIsErr = true
+				return &drillResult{AwaitKind: AwaitNone}
+			}
+		}
+		if top := m.ColumnStack.Top(); top != nil {
+			top.SetItems(m.configEntries())
+		}
+		if m.PlaybackSvc != nil && m.AppConfig != nil {
+			m.PlaybackSvc.SetSkipConfig(&m.AppConfig.Player.Skip)
+		}
+		m.StatusMsg = "Saved skip setting (applies to next playback)"
 		return &drillResult{AwaitKind: AwaitNone}
 	case "__config_autoplay__":
 		m.UIConfig.Autoplay = !m.UIConfig.Autoplay
@@ -654,11 +712,11 @@ func (m *Model) navigateToSearchResult(item search.FilterItem) tea.Cmd {
 	libCol.SetShowLibraryCounts(m.UIConfig.ShowLibraryCounts)
 	m.Inspector.SetLibraryStates(m.LibraryStates)
 
-	// Find and select the library
-	virtualOffset := len(virtualLibraryEntries())
-	for i, lib := range m.Libraries {
+	// Find and select the library by scanning the actual entries list,
+	// since transient virtual sections may be absent (skipped when empty).
+	for i, lib := range m.allLibraryEntries() {
 		if lib.ID == navCtx.LibraryID {
-			libCol.SetSelectedIndex(i + virtualOffset)
+			libCol.SetSelectedIndex(i)
 			break
 		}
 	}

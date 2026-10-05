@@ -16,14 +16,15 @@ func TestEnvVarOverrides(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("APPDATA", home)
 	t.Setenv("CUE_SERVER_TOKEN", "env-token")
+	t.Setenv("CUE_SERVER_PLEX_ACCOUNT_TOKEN", "account-token")
 	t.Setenv("CUE_UI_AUTOPLAY", "false")
 
 	cfg, err := LoadConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Server.Token != "env-token" || cfg.UI.Autoplay {
-		t.Fatalf("nested environment overrides not applied: token=%q autoplay=%v", cfg.Server.Token, cfg.UI.Autoplay)
+	if cfg.Server.Token != "env-token" || cfg.Server.PlexAccountToken != "account-token" || cfg.UI.Autoplay {
+		t.Fatalf("nested environment overrides not applied: token=%q account_token=%q autoplay=%v", cfg.Server.Token, cfg.Server.PlexAccountToken, cfg.UI.Autoplay)
 	}
 }
 
@@ -45,6 +46,7 @@ func TestSaveAndClearUseLoadedConfigFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg.Server.Token = "new-token"
+	cfg.Server.PlexAccountToken = "account-token"
 	if err := SaveConfig(cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -52,12 +54,18 @@ func TestSaveAndClearUseLoadedConfigFile(t *testing.T) {
 	if !strings.Contains(string(data), "new-token") {
 		t.Fatalf("loaded config was not updated: %s", data)
 	}
+	if !strings.Contains(string(data), "account-token") {
+		t.Fatalf("Plex account token was not persisted: %s", data)
+	}
 	if err := ClearServerConfig(); err != nil {
 		t.Fatal(err)
 	}
 	data, _ = os.ReadFile(localConfig)
 	if strings.Contains(string(data), "new-token") {
 		t.Fatalf("credentials remained in loaded config: %s", data)
+	}
+	if strings.Contains(string(data), "account-token") {
+		t.Fatalf("Plex account token remained in loaded config: %s", data)
 	}
 }
 
@@ -128,5 +136,41 @@ func TestLoadConfigGeneratesDeviceID(t *testing.T) {
 func TestDefaultConfigEnablesPlayNextOnSelect(t *testing.T) {
 	if !DefaultConfig().UI.PlayNextOnSelect {
 		t.Fatal("PlayNextOnSelect should be enabled by default")
+	}
+}
+
+func TestSkipConfigRoundTripAndEnv(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", home)
+	t.Setenv("APPDATA", home)
+	t.Chdir(t.TempDir())
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Player.Skip.Intro != "manual" || !cfg.Player.Skip.ChaptersWhenMissing {
+		t.Fatalf("defaults=%+v", cfg.Player.Skip)
+	}
+	cfg.Player.Skip.Outro = "off"
+	cfg.Player.Skip.Key = "k"
+	if err := SaveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	viper.Reset()
+	t.Setenv("CUE_PLAYER_SKIP_INTRO", "auto")
+	cfg, err = LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Player.Skip.Intro != "auto" || cfg.Player.Skip.Outro != "off" || cfg.Player.Skip.Key != "k" {
+		t.Fatalf("roundtrip=%+v", cfg.Player.Skip)
+	}
+	t.Setenv("CUE_PLAYER_SKIP_INTRO", "invalid")
+	viper.Reset()
+	if _, err := LoadConfig(); err == nil {
+		t.Fatal("accepted invalid mode")
 	}
 }

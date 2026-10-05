@@ -19,6 +19,7 @@ import (
 	"github.com/SuperCoolPencil/cue/internal/player"
 	"github.com/SuperCoolPencil/cue/internal/playlist"
 	"github.com/SuperCoolPencil/cue/internal/search"
+	"github.com/SuperCoolPencil/cue/internal/segments"
 	"github.com/SuperCoolPencil/cue/internal/store"
 	"github.com/SuperCoolPencil/cue/internal/tui"
 	"github.com/SuperCoolPencil/cue/internal/tui/styles"
@@ -102,11 +103,20 @@ func runCLI(args []string, stdout, stderr io.Writer) int {
 			fs.Usage()
 			_, _ = fmt.Fprintln(stdout, "\nCommands:")
 			_, _ = fmt.Fprintln(stdout, "  completion   Generate shell completion scripts")
+			_, _ = fmt.Fprintln(stdout, "  chapters     Export or explicitly embed generated chapters")
+			_, _ = fmt.Fprintln(stdout, "  analyze      Detect recurring intro/outro sequences in a season")
+			_, _ = fmt.Fprintln(stdout, "  discover     Discover and switch Plex servers via plex.tv")
 			_, _ = fmt.Fprintln(stdout, "  help         Show this help")
 			_, _ = fmt.Fprintln(stdout, "\nFlags:")
 			_, _ = fmt.Fprintln(stdout, "  -d, --debug  Enable debug logging")
 			_, _ = fmt.Fprintln(stdout, "  -v, --version  Print version")
 			return 0
+		case "chapters":
+			return runChapters(remainingArgs[1:], stdout, stderr)
+		case "analyze":
+			return runAnalyze(remainingArgs[1:], stdout, stderr)
+		case "discover":
+			return runDiscover(remainingArgs[1:], stdout, stderr)
 		default:
 			_, _ = fmt.Fprintf(stderr, "Error: unknown command %q\n", remainingArgs[0])
 			fs.Usage()
@@ -127,7 +137,7 @@ const bashCompletion = `_cue_completions() {
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    opts="completion help"
+    opts="completion discover analyze chapters help"
 
     case "${prev}" in
         completion)
@@ -156,7 +166,7 @@ _cue() {
         "--version[print version]" \
         "-d[enable debug logging]" \
         "--debug[enable debug logging]" \
-        "1: :((completion\:'Generate shell completion scripts' help\:'Show help'))" \
+        "1: :((completion\:'Generate shell completion scripts' discover\:'Discover and switch Plex servers' help\:'Show help'))" \
         "*::arg:->args"
     case $line[1] in
         completion)
@@ -171,8 +181,9 @@ const psCompletion = `Register-ArgumentCompleter -CommandName cue -ScriptBlock {
     param($wordToComplete, $commandAst, $cursorPosition)
     $completions = @()
     if ($commandAst.CommandElements.Count -eq 1) {
-        $completions += New-Object System.Management.Automation.CompletionResult "completion", "completion", "ParameterValue", "Generate shell completion scripts"
-        $completions += New-Object System.Management.Automation.CompletionResult "help", "help", "ParameterValue", "Show help"
+    $completions += New-Object System.Management.Automation.CompletionResult "completion", "completion", "ParameterValue", "Generate shell completion scripts"
+    $completions += New-Object System.Management.Automation.CompletionResult "discover", "discover", "ParameterValue", "Discover and switch Plex servers"
+    $completions += New-Object System.Management.Automation.CompletionResult "help", "help", "ParameterValue", "Show help"
     } elseif ($commandAst.CommandElements[1].Value -eq "completion") {
         $completions += New-Object System.Management.Automation.CompletionResult "bash", "bash", "ParameterValue", "bash"
         $completions += New-Object System.Management.Automation.CompletionResult "zsh", "zsh", "ParameterValue", "zsh"
@@ -199,6 +210,7 @@ end
 
 complete -c cue -f
 complete -c cue -n "__fish_cue_no_subcommand" -a "completion" -d "Generate shell completion scripts"
+complete -c cue -n "__fish_cue_no_subcommand" -a "discover" -d "Discover and switch Plex servers"
 complete -c cue -n "__fish_cue_no_subcommand" -a "help" -d "Show help"
 complete -c cue -s v -l version -d "Print version"
 complete -c cue -s d -l debug -d "Enable debug logging"
@@ -238,6 +250,22 @@ func run(debug bool) error {
 		return fmt.Errorf("failed to create media client: %w", err)
 	}
 
+	// Analysis belongs to the application lifetime, never the playback launch.
+	analysisCtx, stopAnalysis := context.WithCancel(context.Background())
+	if cfg.Player.Skip.AnalysisAtStartup {
+		analysisDone := make(chan struct{})
+		defer func() { stopAnalysis(); <-analysisDone }()
+		analysisClient, _ := mediaserver.NewClient(cfg, logger)
+		analyzer := segments.Analyzer{Client: analysisClient, Cache: segments.DefaultCache(), Server: cfg.Server.URL, User: cfg.Server.UserID, IntroWindowSeconds: cfg.Player.Skip.IntroWindowSeconds, Logger: logger}
+		go func() {
+			defer close(analysisDone)
+			if err := analyzer.Startup(analysisCtx); err != nil && analysisCtx.Err() == nil {
+				logger.Warn("startup skip analysis unavailable", "error", err)
+			}
+		}()
+	} else {
+		defer stopAnalysis()
+	}
 	// Create store (persistence layer)
 	libraryStore, err := store.NewLibraryStore(config.DefaultCachePath(), cfg.Server.URL, cfg.Server.UserID)
 	if err != nil {
@@ -252,6 +280,8 @@ func run(debug bool) error {
 
 	// Create launcher (uses configured player or auto-detects)
 	launcher := player.NewLauncher(cfg.Player.Command, cfg.Player.Args, cfg.Player.StartFlag, logger)
+	launcher.SetSkipConfig(&cfg.Player.Skip)
+	launcher.SetSegmentCache(cfg.Server.URL, cfg.Server.UserID)
 
 	// Create services
 	librarySvc := library.NewService(client, libraryStore, logger)
@@ -259,6 +289,7 @@ func run(debug bool) error {
 	searchSvc := search.NewService(libraryStore)
 	searchSvc.SetRemote(client)
 	playbackSvc := player.NewService(launcher, client, logger)
+	defer playbackSvc.Close()
 
 	// Create TUI model with Store and concrete service types
 	model := tui.NewModel(libraryStore, librarySvc, playlistSvc, searchSvc, playbackSvc, client, cfg, cfg.UI, Version)
@@ -341,6 +372,9 @@ func runSetupFlow(cfg *config.Config, logger *slog.Logger) error {
 
 	// Save credentials
 	cfg.Server.Token = result.Token
+	if serverType == config.SourceTypePlex {
+		cfg.Server.PlexAccountToken = result.Token
+	}
 	cfg.Server.UserID = result.UserID
 	cfg.Server.Username = result.Username
 

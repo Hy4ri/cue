@@ -17,12 +17,55 @@ import (
 	"github.com/SuperCoolPencil/cue/internal/playlist"
 	"github.com/SuperCoolPencil/cue/internal/search"
 	"github.com/SuperCoolPencil/cue/internal/tui/components"
+	"github.com/SuperCoolPencil/cue/internal/tui/styles"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 // authFailedStatusMsg tells the user how to recover from a revoked/expired
 // token. Shown persistently (not auto-cleared) since action is required.
 const authFailedStatusMsg = "Session expired or revoked — press L to log out, then run cue to sign in again"
+
+func playbackStatusText(item domain.MediaItem, position time.Duration) string {
+	if position < 0 {
+		position = 0
+	}
+	parts := make([]string, 0, 6)
+	if item.ShowTitle != "" {
+		parts = append(parts, item.ShowTitle)
+	}
+	if code := item.EpisodeCode(); code != "" {
+		parts = append(parts, code)
+	}
+	if item.Title != "" {
+		parts = append(parts, item.Title)
+	}
+	parts = append(parts, formatPlaybackTime(position))
+
+	if item.Duration > 0 {
+		duration := item.Duration
+		if position > duration {
+			position = duration
+		}
+		remaining := duration - position
+		percent := float64(position) / float64(duration) * 100
+		parts[len(parts)-1] += " / " + formatPlaybackTime(duration)
+		parts = append(parts, fmt.Sprintf("%.0f%%", percent), formatRemainingPlaybackTime(remaining)+" left")
+	}
+
+	return strings.Join(parts, " · ")
+}
+
+func formatPlaybackTime(value time.Duration) string {
+	totalMinutes := int64(value / time.Minute)
+	return fmt.Sprintf("%02d:%02d", totalMinutes/60, totalMinutes%60)
+}
+
+func formatRemainingPlaybackTime(value time.Duration) string {
+	if value < time.Hour {
+		return fmt.Sprintf("%dm", int(value/time.Minute))
+	}
+	return fmt.Sprintf("%dh %02dm", int(value/time.Hour), int(value/time.Minute)%60)
+}
 
 // ApplicationState represents the current state of the application
 type ApplicationState int
@@ -77,6 +120,8 @@ func playlistsLibraryEntry() domain.Library {
 	}
 }
 
+// virtualLibraryEntries returns the full set of synthetic library entries.
+// This is the stable, complete list used for counting and backward-compat.
 func virtualLibraryEntries() []domain.Library {
 	return []domain.Library{
 		{ID: continueLibraryID, Name: "Continue Watching", Type: "cue"},
@@ -89,11 +134,62 @@ func virtualLibraryEntries() []domain.Library {
 	}
 }
 
-// allLibraryEntries returns libraries plus the synthetic Playlists entry
+// libraryTypePriority returns a sort key so movies sort before shows,
+// and shows before any other library type.
+func libraryTypePriority(libType string) int {
+	switch libType {
+	case "movie":
+		return 0
+	case "show":
+		return 1
+	default:
+		return 2
+	}
+}
+
+// allLibraryEntries assembles the full ordered list shown in the root column:
+//  1. Transient smart sections (Continue Watching, Recently Added, Watch Queue)
+//     – each is omitted when it has no items to avoid visual clutter.
+//  2. Real server libraries sorted by type: movies → shows → everything else.
+//  3. Playlists.
+//  4. Management entries: Smart Filters, Profiles, Config, Cache.
 func (m *Model) allLibraryEntries() []domain.Library {
-	entries := append([]domain.Library{}, virtualLibraryEntries()...)
-	entries = append(entries, m.Libraries...)
-	return append(entries, playlistsLibraryEntry())
+	var entries []domain.Library
+
+	// 1. Transient sections – only include when non-empty.
+	if m.LibraryService != nil {
+		if items := m.LibraryService.ContinueWatching(1); len(items) > 0 {
+			entries = append(entries, domain.Library{ID: continueLibraryID, Name: "Continue Watching", Type: "cue"})
+		}
+		if items := m.LibraryService.RecentlyAdded(1); len(items) > 0 {
+			entries = append(entries, domain.Library{ID: recentLibraryID, Name: "Recently Added", Type: "cue"})
+		}
+	}
+	if m.PlaylistService != nil {
+		if items := m.PlaylistService.QueueItems(); len(items) > 0 {
+			entries = append(entries, domain.Library{ID: queueLibraryID, Name: "Watch Queue", Type: "cue"})
+		}
+	}
+
+	// 2. Real libraries sorted by type priority.
+	sorted := append([]domain.Library{}, m.Libraries...)
+	slices.SortStableFunc(sorted, func(a, b domain.Library) int {
+		return libraryTypePriority(a.Type) - libraryTypePriority(b.Type)
+	})
+	entries = append(entries, sorted...)
+
+	// 3. Playlists.
+	entries = append(entries, playlistsLibraryEntry())
+
+	// 4. Management entries.
+	entries = append(entries,
+		domain.Library{ID: filtersLibraryID, Name: "Smart Filters", Type: "cue"},
+		domain.Library{ID: profilesLibraryID, Name: "Profiles", Type: "cue"},
+		domain.Library{ID: configLibraryID, Name: "Config", Type: "cue"},
+		domain.Library{ID: cacheLibraryID, Name: "Cache", Type: "cue"},
+	)
+
+	return entries
 }
 
 // Model is the main Bubble Tea model for the application
@@ -170,10 +266,15 @@ type Model struct {
 	pendingPlaylist    []domain.MediaItem
 	PendingSelectionID string // ID of item to select after load completes
 	pendingDelete      domain.ListItem
+	confirmFocusedIdx  int
 
 	// posterItemID tracks the item a poster fetch was last requested for,
 	// so stale PosterLoadedMsg results are ignored.
-	posterItemID string
+	introStatusKey     string
+	introStatusLabel   string
+	introStatusPending bool
+	introStatusChecked time.Time
+	posterItemID       string
 	// posterRequestKey identifies the item, URL, and rendered dimensions
 	// currently being requested.
 	posterRequestKey string
@@ -201,6 +302,12 @@ func NewModel(
 	uiConfig config.UIConfig,
 	version string,
 ) Model {
+	// Restore saved theme before building the model so every component that
+	// reads the active theme during init (e.g. text input styles) gets the
+	// right colours immediately.
+	if uiConfig.Theme != "" {
+		styles.SetTheme(uiConfig.Theme)
+	}
 	return Model{
 		State:           StateBrowsing,
 		Store:           store,
@@ -254,11 +361,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMsg:
 		return m.handleMouseMsg(msg)
 
+	case introStatusLoadedMsg:
+		if msg.Key == m.introStatusKey {
+			m.introStatusPending = false
+			m.introStatusLabel = msg.Label
+			m.Inspector.SetIntroStatus(msg.Label)
+		}
+		return m, nil
 	case TickMsg:
 		m.SpinnerFrame++
 		// Always propagate spinner frame - columns render spinner only when their loading flag is true
 		m.ColumnStack.UpdateSpinnerFrame(m.SpinnerFrame)
-		return m, TickCmd(100 * time.Millisecond)
+		var statusCmd tea.Cmd
+		if top := m.ColumnStack.Top(); top != nil {
+			statusCmd = m.updateIntroStatus(top.SelectedItem())
+		}
+		return m, tea.Batch(TickCmd(100*time.Millisecond), statusCmd)
 
 	case LibrariesLoadedMsg:
 		m.Libraries = msg.Libraries
@@ -487,7 +605,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, pc
 
 	case PlaybackStartedMsg:
-		m.isPlayingTitle = msg.Item.Title
+		m.isPlayingTitle = playbackStatusText(msg.Item, msg.Item.ViewOffset)
 		m.StatusMsg = ""
 		return m, tea.Batch(
 			WaitForPlaybackCmd(msg.Handle.ResultCh),
@@ -495,7 +613,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		)
 
 	case PlaybackStatusMsg:
-		// Keep listening for more status updates — status displayed via isPlayingTitle
+		m.isPlayingTitle = playbackStatusText(msg.Status.Item, time.Duration(msg.Status.PositionMs)*time.Millisecond)
 		return m, ListenForPlaybackStatusCmd(msg.StatusCh)
 
 	case PlaybackFinishedMsg:
@@ -520,55 +638,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case MarkWatchedMsg:
 		m.StatusMsg = "Marked watched: " + msg.Title
-		// Update local state for immediate feedback
-		if top := m.ColumnStack.Top(); top != nil {
-			if item := top.SelectedItem(); item != nil {
-				switch v := item.(type) {
-				case *domain.MediaItem:
-					v.IsPlayed = true
-					v.ViewOffset = 0
-					// Propagate to parents in the stack
-					m.propagateWatchStatus(v, true)
-				case *domain.Show:
-					v.UnwatchedCount = 0
-				case *domain.Season:
-					v.UnwatchedCount = 0
-				case *components.SeasonHeader:
-					v.Season.UnwatchedCount = 0
-				}
-			}
-		}
-		// Delayed targeted refresh to avoid stale data flicker
-		cmds = append(cmds, tea.Tick(500*time.Millisecond, func(t time.Time) tea.Msg {
-			return RefreshCurrentMsg{LibraryID: msg.LibraryID}
-		}))
+		m.applyWatchState(msg.ItemID, true)
 		cmds = append(cmds, ClearStatusCmd(3*time.Second))
 		return m, tea.Batch(cmds...)
 
 	case MarkUnwatchedMsg:
 		m.StatusMsg = "Marked unwatched: " + msg.Title
-		// Update local state for immediate feedback
-		if top := m.ColumnStack.Top(); top != nil {
-			if item := top.SelectedItem(); item != nil {
-				switch v := item.(type) {
-				case *domain.MediaItem:
-					v.IsPlayed = false
-					v.ViewOffset = 0
-					// Propagate to parents in the stack
-					m.propagateWatchStatus(v, false)
-				case *domain.Show:
-					v.UnwatchedCount = v.EpisodeCount
-				case *domain.Season:
-					v.UnwatchedCount = v.EpisodeCount
-				case *components.SeasonHeader:
-					v.Season.UnwatchedCount = v.Season.EpisodeCount
-				}
-			}
-		}
-		// Delayed targeted refresh to avoid stale data flicker
-		cmds = append(cmds, tea.Tick(500*time.Millisecond, func(t time.Time) tea.Msg {
-			return RefreshCurrentMsg{LibraryID: msg.LibraryID}
-		}))
+		m.applyWatchState(msg.ItemID, false)
 		cmds = append(cmds, ClearStatusCmd(3*time.Second))
 		return m, tea.Batch(cmds...)
 
@@ -704,6 +780,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.posterContent = msg.Content
 		m.posterPlacement = msg.Placement
 		m.posterImageID = msg.ImageID
+
+		if m.GlobalSearch.IsVisible() {
+			m.GlobalSearch.SetPoster(msg.Content)
+		} else if m.ColumnStack != nil && m.ColumnStack.Top() != nil {
+			m.Inspector.SetPoster(msg.Content)
+		}
 		return m, nil
 
 	case SeasonForPlaybackLoadedMsg:
@@ -835,6 +917,38 @@ func (m *Model) updateLibraryStates() {
 		libCol.SetLibraryStates(m.LibraryStates)
 	}
 	m.Inspector.SetLibraryStates(m.LibraryStates)
+}
+
+// applyWatchState updates every cached and currently rendered copy of an item.
+// Keeping the cache in sync is important: otherwise a subsequent cached load
+// can immediately restore the item's old watch status after the server update.
+func (m *Model) applyWatchState(itemID string, played bool) {
+	m.LibraryService.SetWatchState(itemID, played)
+
+	var patched *domain.MediaItem
+	flipped := false
+	for i := 0; i < m.ColumnStack.Len(); i++ {
+		if col := m.ColumnStack.Get(i); col != nil {
+			if item, changed := col.ApplyWatchState(itemID, played); item != nil {
+				patched = item
+				flipped = flipped || changed
+			}
+		}
+	}
+
+	if flipped && patched != nil && patched.ShowID != "" {
+		delta := 1
+		if played {
+			delta = -1
+		}
+		for i := 0; i < m.ColumnStack.Len(); i++ {
+			if col := m.ColumnStack.Get(i); col != nil {
+				col.AdjustUnwatchedCounts(patched.ShowID, patched.ParentID, delta)
+			}
+		}
+	}
+
+	m.updateInspector()
 }
 
 // refreshCurrentView refreshes the current view
@@ -1195,13 +1309,54 @@ func (m Model) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 }
 
 // updateInspector updates the inspector with the selected item from middle column
-func (m *Model) updateInspector() tea.Cmd {
+func (m *Model) updateInspector() (cmd tea.Cmd) {
+	if m.GlobalSearch.IsVisible() {
+		sel := m.GlobalSearch.Selected()
+		if sel == nil || sel.Item == nil {
+			m.GlobalSearch.SetPoster("")
+			if m.hasPosterState() {
+				m.invalidatePoster()
+			}
+			return nil
+		}
+		posterItem := sel.Item
+		id := ""
+		if item, ok := posterItem.(*domain.MediaItem); ok {
+			id = item.ID
+		} else if show, ok := posterItem.(*domain.Show); ok {
+			id = show.ID
+		}
+		url := PosterURL(posterItem)
+		if id == "" || (url == "" && !posterMetadataFallback(posterItem)) {
+			m.GlobalSearch.SetPoster("")
+			if m.hasPosterState() {
+				m.invalidatePoster()
+			}
+			return nil
+		}
+
+		width := 24
+		maxHeight := 18
+		requestKey := strings.Join([]string{id, url, fmt.Sprint(width), fmt.Sprint(maxHeight)}, "\x00")
+		if requestKey == m.posterRequestKey {
+			m.GlobalSearch.SetPoster(m.posterContent)
+			return nil
+		}
+
+		m.posterRequestID++
+		requestID := m.posterRequestID
+		m.posterRequestKey = requestKey
+		m.posterItemID = id
+		return FetchPosterCmd(m.MediaClient, m.posterOutput, requestID, id, url, width, maxHeight)
+	}
+
 	var top *components.ListColumn
 	if m.ColumnStack != nil {
 		top = m.ColumnStack.Top()
 	}
 	if top == nil {
 		m.Inspector.SetItem(nil)
+		m.updateIntroStatus(nil)
 		if m.hasPosterState() {
 			m.invalidatePoster()
 		}
@@ -1210,6 +1365,12 @@ func (m *Model) updateInspector() tea.Cmd {
 
 	item := top.SelectedItem()
 	m.Inspector.SetItem(item)
+	statusCmd := m.updateIntroStatus(item)
+	defer func() {
+		if statusCmd != nil {
+			cmd = tea.Batch(cmd, statusCmd)
+		}
+	}()
 
 	// The inspector follows the active column, while the preview follows the
 	// nearest movie/show browsing column. Opening seasons or episodes must not
@@ -1235,6 +1396,7 @@ func (m *Model) updateInspector() tea.Cmd {
 	maxHeight := m.posterMaxHeight()
 	requestKey := strings.Join([]string{id, url, fmt.Sprint(width), fmt.Sprint(maxHeight)}, "\x00")
 	if requestKey == m.posterRequestKey {
+		m.Inspector.SetPoster(m.posterContent)
 		return nil
 	}
 

@@ -27,6 +27,14 @@ player:
     - "--no-terminal"
   # Flag for specifying start time; %d is replaced with elapsed seconds
   # start_flag: "--start=%d"
+  # mpv intro/outro skipping: off, manual, or auto
+  skip:
+    analysis_at_startup: true
+    intro: manual
+    outro: manual
+    key: Ctrl+x
+    undo_key: Alt+x
+    chapters_when_missing: true
 
 # User Interface Configuration
 ui:

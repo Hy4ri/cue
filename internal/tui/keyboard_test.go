@@ -142,3 +142,62 @@ func TestEnterOnShowDirectPlaysWhenEnabled(t *testing.T) {
 		t.Fatalf("status = %q", got.StatusMsg)
 	}
 }
+
+func TestOpenBrowserKeybinding(t *testing.T) {
+	col := components.NewListColumn(components.ColumnTypeMovies, "Movies")
+	col.SetItems([]*domain.MediaItem{{ID: "m1", Title: "Movie", Type: domain.MediaTypeMovie}})
+	col.SetFocused(true)
+
+	model := Model{
+		State:       StateBrowsing,
+		ColumnStack: NewColumnStack(),
+		MediaClient: &posterClientStub{},
+	}
+	model.ColumnStack.Push(col, 0)
+
+	updated, cmd := model.handleKeyMsg(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	got := updated.(Model)
+
+	if got.StatusMsg != "Opening in browser..." {
+		t.Fatalf("status = %q, want 'Opening in browser...'", got.StatusMsg)
+	}
+	if cmd == nil {
+		t.Fatal("expected non-nil cmd for open in browser")
+	}
+}
+
+func TestHelpListsOpenBrowserShortcut(t *testing.T) {
+	if !strings.Contains((Model{}).renderHelp(), "Open in browser") {
+		t.Fatal("help does not list Open in browser")
+	}
+}
+
+func TestConfirmDialogArrowKeyNavigation(t *testing.T) {
+	// Deletion default is index 1 ("No"). Navigating Left shifts to 0 ("Yes").
+	model := Model{
+		State:             StateConfirmDelete,
+		confirmFocusedIdx: 1,
+		pendingDelete:     &domain.MediaItem{ID: "m1", Title: "Movie", Type: domain.MediaTypeMovie},
+		MediaClient:       &posterClientStub{},
+	}
+
+	// Press Left arrow
+	updatedLeft, _ := model.handleKeyMsg(tea.KeyMsg{Type: tea.KeyLeft})
+	gotLeft := updatedLeft.(Model)
+	if gotLeft.confirmFocusedIdx != 0 {
+		t.Fatalf("confirmFocusedIdx = %d, want 0 after Left", gotLeft.confirmFocusedIdx)
+	}
+
+	// Press Enter to confirm deletion on Yes
+	updatedEnter, cmd := gotLeft.handleKeyMsg(tea.KeyMsg{Type: tea.KeyEnter})
+	gotEnter := updatedEnter.(Model)
+	if gotEnter.State != StateBrowsing {
+		t.Fatalf("state = %v, want StateBrowsing after confirming Yes", gotEnter.State)
+	}
+	if gotEnter.pendingDelete != nil {
+		t.Fatal("pendingDelete should be cleared")
+	}
+	if cmd == nil {
+		t.Fatal("expected non-nil cmd for deletion")
+	}
+}

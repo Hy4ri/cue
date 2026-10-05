@@ -98,3 +98,20 @@ func TestInspectorPlacesPosterBesideMetadata(t *testing.T) {
 	}
 	t.Fatalf("poster and metadata were not rendered side-by-side; got:\n%s", view)
 }
+
+func TestShowInspectorIntroStatus(t *testing.T) {
+	i := NewInspector()
+	i.SetSize(100, 25)
+	i.SetItem(&domain.Season{ID: "season", Title: "Season 2", EpisodeCount: 12})
+	i.SetIntroStatus("Detected (6 episodes)")
+	view := i.View()
+	for _, text := range []string{"Intro: Detected (6 episodes)", "Episodes: 12"} {
+		if !strings.Contains(view, text) {
+			t.Errorf("missing %q in %s", text, view)
+		}
+	}
+	i.SetItem(&domain.Show{ID: "other", Title: "Other"})
+	if strings.Contains(i.View(), "Detected") {
+		t.Fatal("previous show's status leaked")
+	}
+}

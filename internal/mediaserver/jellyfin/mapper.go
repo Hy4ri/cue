@@ -98,6 +98,9 @@ func mapMovie(item Item, serverURL string) domain.MediaItem {
 	if item.UserData != nil {
 		mi.IsPlayed = item.UserData.Played
 		mi.ViewOffset = ticksToDuration(item.UserData.PlaybackPositionTicks)
+		if lastPlayed, err := time.Parse(time.RFC3339Nano, item.UserData.LastPlayedDate); err == nil {
+			mi.LastPlayedAt = lastPlayed.Unix()
+		}
 	}
 
 	// Image URLs
@@ -269,6 +272,9 @@ func mapEpisode(item Item, serverURL string) domain.MediaItem {
 	if item.UserData != nil {
 		mi.IsPlayed = item.UserData.Played
 		mi.ViewOffset = ticksToDuration(item.UserData.PlaybackPositionTicks)
+		if lastPlayed, err := time.Parse(time.RFC3339Nano, item.UserData.LastPlayedDate); err == nil {
+			mi.LastPlayedAt = lastPlayed.Unix()
+		}
 	}
 
 	// Image URLs

@@ -103,7 +103,7 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 		}
 
 		req.Header.Set("Accept", "application/json")
-		req.Header.Set("X-Emby-Authorization", buildAuthHeader(c.token, c.deviceID))
+		req.Header.Set("Authorization", buildAuthHeader(c.token, c.deviceID))
 		if bodyBytes != nil {
 			req.Header.Set("Content-Type", "application/json")
 		}
@@ -169,7 +169,7 @@ func (c *Client) GetImage(ctx context.Context, url string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create image request: %w", err)
 	}
-	req.Header.Set("X-Emby-Authorization", buildAuthHeader(c.token, c.deviceID))
+	req.Header.Set("Authorization", buildAuthHeader(c.token, c.deviceID))
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -433,12 +433,15 @@ func (c *Client) ResolvePlayable(ctx context.Context, itemID string) (domain.Pla
 	streamURL := fmt.Sprintf("%s/Videos/%s/stream.%s?Static=true&api_key=%s",
 		c.baseURL, itemID, source.Container, c.token)
 
+	streamURL += "&MediaSourceId=" + url.QueryEscape(source.ID)
 	subs := c.collectExternalSubtitles(itemID, source)
 	if len(subs) > 0 {
 		c.logger.Debug("resolved external subtitles", "itemID", itemID, "count", len(subs))
 	}
 
-	return domain.PlayableMedia{URL: streamURL, Subtitles: subs}, nil
+	duration := source.RunTimeTicks / 10000
+	segments := c.getSkipSegments(ctx, itemID, duration)
+	return domain.PlayableMedia{URL: streamURL, Subtitles: subs, SourceID: source.ID, Revision: fmt.Sprintf("%d:%d", source.Size, source.RunTimeTicks), DurationMs: duration, Segments: segments}, nil
 }
 
 // collectExternalSubtitles builds a list of side-loadable subtitle tracks
@@ -818,4 +821,43 @@ func (c *Client) GetContinueWatching(ctx context.Context) ([]*domain.MediaItem, 
 		}
 	}
 	return items, nil
+}
+
+// GetWebURL returns the web interface URL for a given item in Jellyfin
+func (c *Client) GetWebURL(ctx context.Context, itemID string) (string, error) {
+	return fmt.Sprintf("%s/web/index.html#/details?id=%s", c.baseURL, itemID), nil
+}
+
+// getSkipSegments is best effort: older servers don't expose MediaSegments.
+func (c *Client) getSkipSegments(ctx context.Context, itemID string, durationMs int64) []domain.SkipSegment {
+	segmentCtx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	body, err := c.doRequest(segmentCtx, http.MethodGet, "/MediaSegments/"+itemID, nil)
+	if err != nil {
+		return nil
+	}
+	var result struct {
+		Items []struct {
+			Type       string
+			StartTicks int64
+			EndTicks   int64
+		}
+	}
+	if json.Unmarshal(body, &result) != nil {
+		return nil
+	}
+	var segments []domain.SkipSegment
+	for _, s := range result.Items {
+		kind := ""
+		switch strings.ToLower(s.Type) {
+		case "intro":
+			kind = "intro"
+		case "outro":
+			kind = "outro"
+		}
+		if kind != "" {
+			segments = append(segments, domain.SkipSegment{Kind: kind, StartMs: s.StartTicks / 10000, EndMs: s.EndTicks / 10000, Origin: "jellyfin"})
+		}
+	}
+	return domain.ValidSkipSegments(segments, durationMs)
 }
