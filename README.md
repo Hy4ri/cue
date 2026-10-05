@@ -71,7 +71,7 @@ Cue uses the Kitty graphics protocol when running directly in Kitty. Other termi
 | `←` `→` `h` `l` | Navigate left/right (columns) |
 | `Enter` | Open a collection, or play/resume an item |
 | `p` | Play from start |
-| `N` | Play the next unplayed episode of a selected show, or the next episode in an open season |
+| `.` | Play the next unplayed episode of a selected show, or the next episode in an open season |
 | `w` / `u` | Mark watched / unwatched |
 | `f` | Global search |
 | `/` | Local filter (current column) |
@@ -79,7 +79,6 @@ Cue uses the Kitty graphics protocol when running directly in Kitty. Other termi
 | `a` | Add to / remove from queue |
 | `x` | Delete playlist / remove item |
 | `n` | Create new playlist (in Playlists view) |
-| `N` | Play next unwatched episode |
 | `s` | Sort options |
 | `i` | Toggle inspector panel |
 | `o` | Open selected item in server web browser |

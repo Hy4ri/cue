@@ -204,8 +204,6 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleMarkUnwatched()
 	case key.Matches(msg, Keys.Play):
 		return m.handlePlay()
-	case key.Matches(msg, Keys.DirectPlay):
-		return m.handleDirectPlay()
 	case key.Matches(msg, Keys.ToggleInspector):
 		return m.handleToggleInspector()
 	case key.Matches(msg, Keys.Logout):
@@ -688,23 +686,6 @@ func (m Model) handleRemove() (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
-}
-
-// handleDirectPlay handles playing the next up episode for a show
-func (m Model) handleDirectPlay() (tea.Model, tea.Cmd) {
-	top := m.ColumnStack.Top()
-	if top == nil {
-		return m, nil
-	}
-
-	rawItem := top.SelectedItem()
-	item, ok := rawItem.(domain.ListItem)
-	if !ok || item.GetItemType() != "show" {
-		m.StatusMsg = "Direct Play is only available for TV Shows"
-		return m, ClearStatusCmd(3 * time.Second)
-	}
-
-	return m.playNextEpisodeForShow(item)
 }
 
 func (m Model) playNextEpisodeForShow(show domain.ListItem) (tea.Model, tea.Cmd) {

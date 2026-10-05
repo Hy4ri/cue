@@ -105,13 +105,13 @@ func TestNextEpisodeKeybinding(t *testing.T) {
 	}
 	model.ColumnStack.Push(col, 0)
 
-	// Cursor starts on ep1 (watched). Pressing N should go to ep2.
-	updated, _ := model.handleKeyMsg(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("N")})
+	// Cursor starts on ep1 (watched). Pressing . should go to ep2.
+	updated, _ := model.handleKeyMsg(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(".")})
 	got := updated.(Model)
 
 	top := got.ColumnStack.Top()
 	if top.SelectedIndex() != 1 {
-		t.Fatalf("selected index after N = %d, want 1 (Ep 2)", top.SelectedIndex())
+		t.Fatalf("selected index after . = %d, want 1 (Ep 2)", top.SelectedIndex())
 	}
 	if item := top.SelectedMediaItem(); item == nil || item.ID != "ep2" {
 		t.Fatalf("selected item = %#v, want ep2", item)
