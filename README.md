@@ -69,9 +69,9 @@ Cue uses the Kitty graphics protocol when running directly in Kitty. Other termi
 |-----|--------|
 | `↑` `↓` `j` `k` | Navigate up/down |
 | `←` `→` `h` `l` | Navigate left/right (columns) |
-| `Enter` | Play or resume an item |
+| `Enter` | Open a collection, or play/resume an item |
 | `p` | Play from start |
-| `Shift+Enter` | Play the next unplayed episode of a selected show |
+| `N` | Play the next unplayed episode of a selected show, or the next episode in an open season |
 | `w` / `u` | Mark watched / unwatched |
 | `f` | Global search |
 | `/` | Local filter (current column) |
@@ -87,7 +87,6 @@ Cue uses the Kitty graphics protocol when running directly in Kitty. Other termi
 | `g` / `G` | Jump to top / bottom |
 | `Ctrl+u` / `d` | Page up / half-page down |
 | `Autoplay` | Toggle automatic next episode in Config menu |
-| `Play next episode on select` | Make Enter on a show play its next episode instead of opening seasons |
 | `Hide watched` | Toggle visibility of watched items in Config menu |
 | `L` | Logout |
 | `?` | Show help |

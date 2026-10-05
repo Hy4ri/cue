@@ -358,12 +358,6 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 
 		return m, nil
 	}
-	if m.UIConfig.PlayNextOnSelect {
-		if item, ok := top.SelectedItem().(domain.ListItem); ok && item.GetItemType() == "show" {
-			return m.playNextEpisodeForShow(item)
-		}
-	}
-
 	if top.CanDrillInto() {
 		return m.drillIntoSelection()
 	}
@@ -748,7 +742,13 @@ func (m Model) handleQueue() (tea.Model, tea.Cmd) {
 
 func (m Model) handleNextEpisode() (tea.Model, tea.Cmd) {
 	top := m.ColumnStack.Top()
-	if top == nil || top.ColumnType() != components.ColumnTypeEpisodes {
+	if top == nil {
+		return m, nil
+	}
+	if item, ok := top.SelectedItem().(domain.ListItem); ok && item.GetItemType() == "show" {
+		return m.playNextEpisodeForShow(item)
+	}
+	if top.ColumnType() != components.ColumnTypeEpisodes {
 		m.StatusMsg = "Open a season to quick-play next unwatched episode"
 		return m, ClearStatusCmd(3 * time.Second)
 	}
