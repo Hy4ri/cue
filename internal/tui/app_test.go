@@ -302,6 +302,22 @@ func TestUpdateInspectorRequestsPosterForEpisodeOnlyContinueWatching(t *testing.
 	}
 }
 
+func TestContinueWatchingRetriesFailedPreview(t *testing.T) {
+	col := components.NewListColumn(components.ColumnTypeMixed, "Continue Watching")
+	col.SetContentID(continueLibraryID)
+	col.SetItems([]*domain.MediaItem{{ID: "movie", Type: domain.MediaTypeMovie, ThumbURL: "https://media/poster"}})
+	m := Model{ColumnStack: NewColumnStack(), Inspector: components.NewInspector(), MediaClient: &posterClientStub{}}
+	m.ColumnStack.Push(col, 0)
+	if m.updateInspector() == nil {
+		t.Fatal("expected first preview request")
+	}
+	updated, _ := m.Update(PosterLoadedMsg{RequestID: m.posterRequestID, ItemID: m.posterItemID})
+	m = updated.(Model)
+	if m.updateInspector() == nil {
+		t.Fatal("failed preview prevented a later request")
+	}
+}
+
 func TestUpdateInspectorRetainsShowPreviewInEpisodePane(t *testing.T) {
 	showCol := components.NewListColumn(components.ColumnTypeShows, "Shows")
 	showCol.SetItems([]*domain.Show{{ID: "show-1", ThumbURL: "https://media/show-poster"}})

@@ -148,19 +148,16 @@ func libraryTypePriority(libType string) int {
 }
 
 // allLibraryEntries assembles the full ordered list shown in the root column:
-//  1. Transient smart sections (Continue Watching, Recently Added, Watch Queue)
-//     – each is omitted when it has no items to avoid visual clutter.
+//  1. Smart sections. Continue Watching is fetched from the server and remains
+//     available even when the local cache has no playback progress.
 //  2. Real server libraries sorted by type: movies → shows → everything else.
 //  3. Playlists.
 //  4. Management entries: Smart Filters, Profiles, Config, Cache.
 func (m *Model) allLibraryEntries() []domain.Library {
-	var entries []domain.Library
+	entries := []domain.Library{{ID: continueLibraryID, Name: "Continue Watching", Type: "cue"}}
 
 	// 1. Transient sections – only include when non-empty.
 	if m.LibraryService != nil {
-		if items := m.LibraryService.ContinueWatching(1); len(items) > 0 {
-			entries = append(entries, domain.Library{ID: continueLibraryID, Name: "Continue Watching", Type: "cue"})
-		}
 		if items := m.LibraryService.RecentlyAdded(1); len(items) > 0 {
 			entries = append(entries, domain.Library{ID: recentLibraryID, Name: "Recently Added", Type: "cue"})
 		}
@@ -781,6 +778,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.posterContent = msg.Content
 		m.posterPlacement = msg.Placement
 		m.posterImageID = msg.ImageID
+		if msg.Content == "" {
+			// Allow another attempt when selection returns to this item after
+			// a temporary image or metadata request failure.
+			m.posterRequestKey = ""
+		}
 
 		if m.GlobalSearch.IsVisible() {
 			m.GlobalSearch.SetPoster(msg.Content)

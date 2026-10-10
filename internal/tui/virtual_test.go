@@ -23,6 +23,15 @@ func TestVirtualLibraryEntries(t *testing.T) {
 	}
 }
 
+func TestContinueWatchingAvailableWithoutCachedProgress(t *testing.T) {
+	st, _ := store.NewLibraryStore("", "", "")
+	m := newVirtualTestModel(st)
+	entries := m.allLibraryEntries()
+	if len(entries) == 0 || entries[0].ID != continueLibraryID {
+		t.Fatalf("Continue Watching missing with empty cache: %#v", entries)
+	}
+}
+
 func TestDrillVirtualContinueWatching(t *testing.T) {
 	st, _ := store.NewLibraryStore("", "", "")
 	libs := []domain.Library{{ID: "movies", Name: "Movies", Type: "movie"}}

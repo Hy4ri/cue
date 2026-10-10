@@ -20,18 +20,27 @@ func preparePlaybackSettings(showID string) (string, error) {
 }
 
 func prepareScopedPlaybackSettings(server, user, showID string, mapPath ...func(string) string) (string, error) {
+	return prepareScopedItemPlaybackSettings(server, user, showID, false, mapPath...)
+}
+
+func prepareScopedItemPlaybackSettings(server, user, itemID string, movie bool, mapPath ...func(string) string) (string, error) {
 	root, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
 	}
 	legacyRoot := filepath.Join(root, "cue", "playback-settings")
-	root = segments.DefaultCache().ShowDir(server, user, showID)
+	cache := segments.DefaultCache()
+	root = cache.ShowDir(server, user, itemID)
+	if movie {
+		// Movie preferences must survive pruning of removed TV shows.
+		root = filepath.Join(cache.ServerDir(server, user), "movies", fmt.Sprintf("%x", sha256.Sum256([]byte(itemID))))
+	}
 	if err := os.MkdirAll(root, 0700); err != nil {
 		return "", err
 	}
 	settings := filepath.Join(root, "settings.json")
-	if _, err := os.Stat(settings); os.IsNotExist(err) {
-		legacy := filepath.Join(legacyRoot, fmt.Sprintf("%x.json", sha256.Sum256([]byte(showID))))
+	if _, err := os.Stat(settings); os.IsNotExist(err) && !movie {
+		legacy := filepath.Join(legacyRoot, fmt.Sprintf("%x.json", sha256.Sum256([]byte(itemID))))
 		if value, err := os.ReadFile(legacy); err == nil {
 			if err := os.WriteFile(settings, value, 0600); err != nil {
 				return "", err

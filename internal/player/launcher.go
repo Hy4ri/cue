@@ -832,12 +832,17 @@ func (s *Service) playItem(ctx context.Context, offset time.Duration, item domai
 
 	var settingsScript string
 	var err error
-	if item.ShowID != "" {
-		settingsScript, err = prepareScopedPlaybackSettings(s.launcher.segmentServer, s.launcher.segmentUser, item.ShowID, s.launcher.playerFilePath)
+	settingsID := item.ShowID
+	movieSettings := item.Type == domain.MediaTypeMovie
+	if movieSettings {
+		settingsID = item.ID
+	}
+	if settingsID != "" {
+		settingsScript, err = prepareScopedItemPlaybackSettings(s.launcher.segmentServer, s.launcher.segmentUser, settingsID, movieSettings, s.launcher.playerFilePath)
 		if err != nil {
 			s.logger.Warn("failed to prepare mpv settings script", "error", err)
 		} else {
-			s.logger.Info("using mpv Lua playback settings", "showID", item.ShowID)
+			s.logger.Info("using mpv Lua playback settings", "settingsID", settingsID)
 		}
 	}
 	s.launcher.skipMu.RLock()
