@@ -712,6 +712,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Check if all done
 		if m.SyncingCount == 0 {
 			m.Loading = false
+			cmds = append(cmds, m.refreshSyncedView())
 		}
 
 		return m, tea.Batch(cmds...)
@@ -960,81 +961,11 @@ func (m *Model) applyWatchState(itemID string, played bool) {
 // refreshCurrentView refreshes the current view
 func (m *Model) refreshCurrentView() tea.Cmd {
 	m.invalidatePoster()
-	top := m.ColumnStack.Top()
-	if top != nil && top.ContentID() == continueLibraryID {
-		m.Loading = true
-		top.SetRefreshing(true)
-		return LoadContinueWatchingCmd(m.LibraryService)
-	}
-	if m.currentLibID != "" {
-		m.LibraryService.InvalidateLibrary(m.currentLibID)
-	} else {
-		m.LibraryService.InvalidateAll()
+	if top := m.ColumnStack.Top(); top != nil && top != m.ColumnStack.Get(0) {
+		return m.reloadView(top)
 	}
 	m.Loading = true
-
-	if top == nil {
-		return LoadLibrariesCmd(m.LibraryService)
-	}
-
-	var cmds []tea.Cmd
-
-	// Get context from column stack to reload
-	switch top.ColumnType() {
-	case components.ColumnTypeMovies:
-		if libCol := m.libraryColumn(); libCol != nil {
-			if lib := libCol.SelectedLibrary(); lib != nil {
-				cmds = append(cmds, LoadMoviesCmd(m.LibraryService, *lib))
-			}
-		}
-	case components.ColumnTypeShows:
-		if libCol := m.libraryColumn(); libCol != nil {
-			if lib := libCol.SelectedLibrary(); lib != nil {
-				cmds = append(cmds, LoadShowsCmd(m.LibraryService, *lib))
-			}
-		}
-	case components.ColumnTypeSeasons:
-		// Get show from parent column - needs libID for hierarchical cache
-		if showCol := m.ColumnStack.Get(m.ColumnStack.Len() - 2); showCol != nil {
-			if show := showCol.SelectedShow(); show != nil {
-				cmds = append(cmds, LoadSeasonsCmd(m.LibraryService, m.currentLibID, show.ID))
-			}
-		}
-	case components.ColumnTypeEpisodes:
-		// Get season from parent column - needs full ancestry for hierarchical cache
-		if seasonCol := m.ColumnStack.Get(m.ColumnStack.Len() - 2); seasonCol != nil {
-			if season := seasonCol.SelectedSeason(); season != nil {
-				cmds = append(cmds, LoadEpisodesCmd(m.LibraryService, m.currentLibID, m.currentShowID, season.ID))
-			}
-		}
-		// ALSO reload the parent (Shows) to update counters
-		if showCol := m.ColumnStack.Get(m.ColumnStack.Len() - 3); showCol != nil && showCol.ColumnType() == components.ColumnTypeShows {
-			if lib := m.findLibrary(m.currentLibID); lib != nil {
-				cmds = append(cmds, LoadShowsCmd(m.LibraryService, *lib))
-			}
-		}
-	case components.ColumnTypeSeasonEpisodes:
-		// Collapsible view: reload seasons for the show
-		cmds = append(cmds, LoadSeasonsCmd(m.LibraryService, m.currentLibID, m.currentShowID))
-		// ALSO reload the parent (Shows) to update counters
-		if showCol := m.ColumnStack.Get(m.ColumnStack.Len() - 2); showCol != nil && showCol.ColumnType() == components.ColumnTypeShows {
-			if lib := m.findLibrary(m.currentLibID); lib != nil {
-				cmds = append(cmds, LoadShowsCmd(m.LibraryService, *lib))
-			}
-		}
-	case components.ColumnTypeMixed:
-		if libCol := m.libraryColumn(); libCol != nil {
-			if lib := libCol.SelectedLibrary(); lib != nil {
-				cmds = append(cmds, LoadMixedLibraryCmd(m.LibraryService, *lib))
-			}
-		}
-	}
-
-	if len(cmds) > 0 {
-		return tea.Batch(cmds...)
-	}
-
-	return LoadLibrariesCmd(m.LibraryService)
+	return RefreshLibrariesCmd(m.LibraryService)
 }
 
 // refreshAfterStatusChange handles refreshing the UI after a watch status change.

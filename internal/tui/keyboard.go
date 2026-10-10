@@ -425,77 +425,15 @@ func (m Model) handleRefresh() (tea.Model, tea.Cmd) {
 		m.LibraryService.InvalidateLibrary(lib.ID)
 		return m, SyncLibraryCmd(m.LibraryService, *lib, m.SyncGen)
 
-	case components.ColumnTypeMovies, components.ColumnTypeMixed, components.ColumnTypeShows:
+	default:
 		return m.refreshLibraryContent(top)
-
-	case components.ColumnTypeSeasons:
-		// Refresh current show's seasons (invalidate seasons + episodes, re-fetch seasons)
-		m.LibraryService.InvalidateShow(m.currentLibID, m.currentShowID)
-		top.SetRefreshing(true)
-		m.Loading = true
-		return m, LoadSeasonsCmd(m.LibraryService, m.currentLibID, m.currentShowID)
-
-	case components.ColumnTypeEpisodes:
-		// Refresh current season's episodes
-		seasonCol := m.ColumnStack.Get(m.ColumnStack.Len() - 2)
-		if seasonCol == nil {
-			return m, nil
-		}
-		season := seasonCol.SelectedSeason()
-		if season == nil {
-			return m, nil
-		}
-		m.LibraryService.InvalidateSeason(m.currentLibID, m.currentShowID, season.ID)
-		top.SetRefreshing(true)
-		m.Loading = true
-		return m, LoadEpisodesCmd(m.LibraryService, m.currentLibID, m.currentShowID, season.ID)
-
-	case components.ColumnTypePlaylists:
-		// Refresh playlists
-		top.SetRefreshing(true)
-		m.Loading = true
-		return m, LoadPlaylistsCmd(m.PlaylistService)
-
-	case components.ColumnTypePlaylistItems:
-		// Refresh playlist items
-		if m.currentPlaylistID == "" {
-			return m, nil
-		}
-		top.SetRefreshing(true)
-		m.Loading = true
-		return m, LoadPlaylistItemsCmd(m.PlaylistService, m.currentPlaylistID)
 	}
-
-	return m, nil
 }
 
-// refreshLibraryContent refreshes movies, shows, or mixed content in the current library
+// refreshLibraryContent delegates to the source of the active view.
 func (m Model) refreshLibraryContent(top *components.ListColumn) (Model, tea.Cmd) {
-	if top.ContentID() == continueLibraryID {
-		m.Loading = true
-		top.SetRefreshing(true)
-		return m, LoadContinueWatchingCmd(m.LibraryService)
-	}
-	libCol := m.libraryColumn()
-	if libCol == nil {
-		return m, nil
-	}
-	lib := libCol.SelectedLibrary()
-	if lib == nil {
-		return m, nil
-	}
-	m.LibraryService.InvalidateLibrary(lib.ID)
-	top.SetRefreshing(true)
-	m.Loading = true
-
-	switch lib.Type {
-	case "movie":
-		return m, LoadMoviesCmd(m.LibraryService, *lib)
-	case "show":
-		return m, LoadShowsCmd(m.LibraryService, *lib)
-	default:
-		return m, LoadMixedLibraryCmd(m.LibraryService, *lib)
-	}
+	cmd := m.reloadView(top)
+	return m, cmd
 }
 
 // handleRefreshAll refreshes all libraries. Unlike before, the navigation
