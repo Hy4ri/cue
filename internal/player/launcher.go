@@ -742,7 +742,8 @@ type Service struct {
 	scrobbler     *Scrobbler
 	logger        *slog.Logger
 	activeMu      sync.Mutex
-	activePlayers map[*exec.Cmd]struct{}
+	activePlayers map[*exec.Cmd]<-chan struct{}
+	closed        bool
 }
 
 // NewService creates a new playback service
@@ -755,7 +756,7 @@ func NewService(launcher *Launcher, playback domain.PlaybackClient, logger *slog
 		playback:      playback,
 		scrobbler:     NewScrobbler(playback, logger),
 		logger:        logger,
-		activePlayers: make(map[*exec.Cmd]struct{}),
+		activePlayers: make(map[*exec.Cmd]<-chan struct{}),
 	}
 }
 
@@ -781,6 +782,12 @@ func (s *Service) Resume(ctx context.Context, item domain.MediaItem, playlist ..
 func (s *Service) Start(ctx context.Context, request Request) (PlaybackHandle, error) {
 	if err := request.Validate(); err != nil {
 		return PlaybackHandle{}, err
+	}
+	s.activeMu.Lock()
+	closed := s.closed
+	s.activeMu.Unlock()
+	if closed {
+		return PlaybackHandle{}, fmt.Errorf("playback service is closed")
 	}
 	item, offset := request.Item, request.Offset
 	allPlaybackItems := append([]domain.MediaItem(nil), request.Queue...)
@@ -866,13 +873,21 @@ func (s *Service) Start(ctx context.Context, request Request) (PlaybackHandle, e
 	if settingsScript != "" {
 		go func() { <-handle.DoneCh; _ = os.Remove(settingsScript) }()
 	}
-	s.trackPlayer(cmd, handle.DoneCh)
+	if !s.trackPlayer(cmd, handle.DoneCh) {
+		return PlaybackHandle{}, fmt.Errorf("playback service closed during startup")
+	}
 	return handle, nil
 }
 
-func (s *Service) trackPlayer(cmd *exec.Cmd, done <-chan struct{}) {
+func (s *Service) trackPlayer(cmd *exec.Cmd, done <-chan struct{}) bool {
 	s.activeMu.Lock()
-	s.activePlayers[cmd] = struct{}{}
+	if s.closed {
+		s.activeMu.Unlock()
+		_ = cmd.Process.Kill()
+		<-done
+		return false
+	}
+	s.activePlayers[cmd] = done
 	s.activeMu.Unlock()
 	go func() {
 		<-done
@@ -880,14 +895,18 @@ func (s *Service) trackPlayer(cmd *exec.Cmd, done <-chan struct{}) {
 		delete(s.activePlayers, cmd)
 		s.activeMu.Unlock()
 	}()
+	return true
 }
 
-// Close terminates every player process Cue launched that is still running.
+// Close terminates owned players and waits for their final server reports.
 func (s *Service) Close() {
 	s.activeMu.Lock()
+	s.closed = true
 	players := make([]*exec.Cmd, 0, len(s.activePlayers))
-	for cmd := range s.activePlayers {
+	done := make([]<-chan struct{}, 0, len(s.activePlayers))
+	for cmd, finished := range s.activePlayers {
 		players = append(players, cmd)
+		done = append(done, finished)
 	}
 	s.activeMu.Unlock()
 
@@ -898,6 +917,9 @@ func (s *Service) Close() {
 		if err := cmd.Process.Kill(); err != nil {
 			s.logger.Debug("player was already stopped during Cue shutdown", "error", err)
 		}
+	}
+	for _, finished := range done {
+		<-finished
 	}
 }
 

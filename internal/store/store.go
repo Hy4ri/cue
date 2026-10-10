@@ -462,52 +462,7 @@ func (s *LibraryStore) SetWatchState(itemID string, played bool) {
 		return true
 	}
 
-	// []*MediaItem payloads: movie lists, episode lists, playlist items, Cue queue
-	patchItemList := func(key string, data []byte) []byte {
-		var items []*domain.MediaItem
-		if json.Unmarshal(data, &items) != nil {
-			return nil
-		}
-		changed := false
-		for _, m := range items {
-			if patch(m) {
-				changed = true
-			}
-		}
-		if !changed {
-			return nil
-		}
-		out, err := json.Marshal(items)
-		if err != nil {
-			return nil
-		}
-		return out
-	}
-
-	s.updateEach(bucketEpisodes, nil, wrapped(patchItemList))
-	s.updateEach(bucketContent, keySuffix(":movies"), patchItemList)
-	s.updateEach(bucketPlaylists, keyPrefix("items:"), patchItemList)
-	s.updateEach(bucketQueue, keyPrefix("items"), patchItemList)
-	s.updateEach(bucketContent, keySuffix(":mixed"), func(key string, data []byte) []byte {
-		var wrappers []listItemWrapper
-		if json.Unmarshal(data, &wrappers) != nil {
-			return nil
-		}
-		changed := false
-		for i := range wrappers {
-			if patch(wrappers[i].Movie) {
-				changed = true
-			}
-		}
-		if !changed {
-			return nil
-		}
-		out, err := json.Marshal(wrappers)
-		if err != nil {
-			return nil
-		}
-		return out
-	})
+	s.patchMediaItems(patch)
 
 	// Adjust unwatched counters on the containing season and show
 	if !flipped || showID == "" {
@@ -587,6 +542,68 @@ func (s *LibraryStore) SetWatchState(itemID string, played bool) {
 		}
 		return out
 	})
+}
+
+// SetPlaybackProgress keeps local queue and filter snapshots consistent with
+// a completed playback session without discarding library metadata.
+func (s *LibraryStore) SetPlaybackProgress(itemID string, offset time.Duration, lastPlayedAt int64) {
+	s.patchMediaItems(func(item *domain.MediaItem) bool {
+		if item == nil || item.ID != itemID {
+			return false
+		}
+		item.ViewOffset, item.LastPlayedAt = offset, lastPlayedAt
+		return true
+	})
+}
+
+func (s *LibraryStore) patchMediaItems(patch func(*domain.MediaItem) bool) {
+	// []*MediaItem payloads: movie lists, episode lists, playlist items, Cue queue
+	patchItemList := func(key string, data []byte) []byte {
+		var items []*domain.MediaItem
+		if json.Unmarshal(data, &items) != nil {
+			return nil
+		}
+		changed := false
+		for _, m := range items {
+			if patch(m) {
+				changed = true
+			}
+		}
+		if !changed {
+			return nil
+		}
+		out, err := json.Marshal(items)
+		if err != nil {
+			return nil
+		}
+		return out
+	}
+
+	s.updateEach(bucketEpisodes, nil, wrapped(patchItemList))
+	s.updateEach(bucketContent, keySuffix(":movies"), patchItemList)
+	s.updateEach(bucketPlaylists, keyPrefix("items:"), patchItemList)
+	s.updateEach(bucketQueue, keyPrefix("items"), patchItemList)
+	s.updateEach(bucketContent, keySuffix(":mixed"), func(key string, data []byte) []byte {
+		var wrappers []listItemWrapper
+		if json.Unmarshal(data, &wrappers) != nil {
+			return nil
+		}
+		changed := false
+		for i := range wrappers {
+			if patch(wrappers[i].Movie) {
+				changed = true
+			}
+		}
+		if !changed {
+			return nil
+		}
+		out, err := json.Marshal(wrappers)
+		if err != nil {
+			return nil
+		}
+		return out
+	})
+
 }
 
 func clampCount(n, max int) int {

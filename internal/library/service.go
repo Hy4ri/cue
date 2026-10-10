@@ -3,6 +3,7 @@ package library
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/SuperCoolPencil/cue/internal/domain"
 )
@@ -206,6 +207,10 @@ func (s *Service) FetchContinueWatching(ctx context.Context) ([]*domain.MediaIte
 func (s *Service) SetWatchState(itemID string, played bool) {
 	s.store.SetWatchState(itemID, played)
 	s.logger.Debug("patched cached watch state", "itemID", itemID, "played", played)
+}
+
+func (s *Service) SetPlaybackProgress(itemID string, offset time.Duration, lastPlayedAt int64) {
+	s.store.SetPlaybackProgress(itemID, offset, lastPlayedAt)
 }
 
 func (s *Service) InvalidateLibrary(libID string) {

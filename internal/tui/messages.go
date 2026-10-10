@@ -85,10 +85,12 @@ type PlaybackStatusMsg struct {
 
 // PlaybackFinishedMsg signals that playback has ended
 type PlaybackFinishedMsg struct {
-	Item       domain.MediaItem
-	Title      string
-	AutoMarked bool // true if auto-scrobbled as watched
-	Err        error
+	Item          domain.MediaItem
+	Title         string
+	AutoMarked    bool // true if auto-scrobbled as watched
+	FinalPosMs    int64
+	PositionKnown bool
+	Err           error
 }
 
 // MarkWatchedMsg signals a request to mark an item as watched

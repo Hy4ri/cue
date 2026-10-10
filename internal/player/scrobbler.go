@@ -26,13 +26,14 @@ type PlaybackStatus struct {
 
 // ScrobbleResult contains the final outcome of a monitored playback session.
 type ScrobbleResult struct {
-	Item       domain.MediaItem
-	ItemID     string
-	Title      string
-	FinalPosMs int64
-	Duration   time.Duration
-	AutoMarked bool
-	Err        error
+	Item          domain.MediaItem
+	ItemID        string
+	Title         string
+	FinalPosMs    int64
+	PositionKnown bool
+	Duration      time.Duration
+	AutoMarked    bool
+	Err           error
 }
 
 // Scrobbler monitors a running player process and reports progress to the server.
@@ -88,6 +89,7 @@ func (s *Scrobbler) Monitor(ctx context.Context, cmd *exec.Cmd, ipcSocket string
 		var mu sync.Mutex     // guards markedIDs
 		var playMu sync.Mutex // guards activeItem/lastPosMs/curState (shared with mpv event handler)
 		markedIDs := make(map[string]bool)
+		progress := newProgressReporter(s.client, s.logger)
 
 		// Keep timeline requests ordered. mpv emits time-pos changes frequently,
 		// so event-driven updates are coalesced instead of creating an HTTP
@@ -145,11 +147,12 @@ func (s *Scrobbler) Monitor(ctx context.Context, cmd *exec.Cmd, ipcSocket string
 						var pos float64
 						if err := json.Unmarshal(pc.Data, &pos); err == nil {
 							playMu.Lock()
-							lastPosMs = int64(pos * 1000)
+							position := int64(pos * 1000)
+							lastPosMs = position
 							item := activeItem
 							state := curState
 							playMu.Unlock()
-							queueTimeline(item, state, lastPosMs)
+							queueTimeline(item, state, position)
 						}
 					case "pause":
 						var paused bool
@@ -162,8 +165,9 @@ func (s *Scrobbler) Monitor(ctx context.Context, cmd *exec.Cmd, ipcSocket string
 							}
 							item := activeItem
 							state := curState
+							position := lastPosMs
 							playMu.Unlock()
-							queueTimeline(item, state, lastPosMs)
+							queueTimeline(item, state, position)
 						}
 					}
 				case "seek":
@@ -190,6 +194,9 @@ func (s *Scrobbler) Monitor(ctx context.Context, cmd *exec.Cmd, ipcSocket string
 				initialPosMs = int64(p * 1000)
 			}
 		}
+		playMu.Lock()
+		lastPosMs = initialPosMs
+		playMu.Unlock()
 		sendTimeline(activeItem, "playing", initialPosMs)
 
 		// Polling loop
@@ -217,7 +224,7 @@ func (s *Scrobbler) Monitor(ctx context.Context, cmd *exec.Cmd, ipcSocket string
 					if len(items) > 1 {
 						// We assume for now the order in 'items' matches the playlist order.
 						if pos, err := mpv.GetProperty("playlist-pos"); err == nil {
-							if idx, ok := pos.(float64); ok && int(idx) < len(items) {
+							if idx, ok := pos.(float64); ok && int(idx) >= 0 && int(idx) < len(items) {
 								newIdx := int(idx)
 								newItem := items[newIdx]
 								playMu.Lock()
@@ -228,13 +235,14 @@ func (s *Scrobbler) Monitor(ctx context.Context, cmd *exec.Cmd, ipcSocket string
 									oldItem := activeItem
 									oldPos := lastPosMs
 									activeItem = newItem
+									lastPosMs = 0
 									playMu.Unlock()
 									s.logger.Info("playlist item changed", "from", oldItem.Title, "to", newItem.Title)
 									// Close the session for the previous item and open one for the new item.
 									sendTimeline(oldItem, "stopped", oldPos)
 									sendTimeline(newItem, "playing", 0)
 									// Mark all previous items in the playlist as watched
-									s.markPreviousWatched(items, newIdx, markedIDs, &mu)
+									s.markPreviousWatched(items, newIdx, markedIDs, &mu, &wg)
 								}
 							}
 						}
@@ -270,16 +278,7 @@ func (s *Scrobbler) Monitor(ctx context.Context, cmd *exec.Cmd, ipcSocket string
 						// Keep-alive timeline update; mpv events also report on change.
 						queueTimeline(item, state, posMs)
 
-						// Fire and forget progress update
-						wg.Add(1)
-						go func(item domain.MediaItem, pos int64) {
-							defer wg.Done()
-							updateCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-							defer cancel()
-							if err := s.client.UpdateProgress(updateCtx, item.ID, pos); err != nil {
-								s.logger.Warn("failed to update progress", "error", err)
-							}
-						}(item, posMs)
+						progress.queue(item, posMs)
 					}
 				}
 			}
@@ -296,12 +295,6 @@ func (s *Scrobbler) Monitor(ctx context.Context, cmd *exec.Cmd, ipcSocket string
 				playMu.Lock()
 				lastPosMs = finalPos
 				playMu.Unlock()
-				s.logger.Debug("final progress update", "item", finalItem.Title, "pos", finalPos)
-				updateCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				if err := s.client.UpdateProgress(updateCtx, finalItem.ID, finalPos); err != nil {
-					s.logger.Warn("failed to report final progress", "error", err)
-				}
-				cancel()
 			}
 		}
 
@@ -312,13 +305,22 @@ func (s *Scrobbler) Monitor(ctx context.Context, cmd *exec.Cmd, ipcSocket string
 			_ = mpv.Close()
 			<-mpv.readDone
 		}
+		// Capture after the IPC reader stops, including its final queued events.
+		playMu.Lock()
+		finalItem, finalPos = activeItem, lastPosMs
+		playMu.Unlock()
+		if mpv != nil {
+			progress.finish(&progressUpdate{finalItem, finalPos})
+		} else {
+			progress.finish(nil)
+		}
 		sendTimeline(finalItem, "stopped", finalPos)
 		close(timelineUpdates)
 		<-timelineDone
 
 		// Handle auto-scrobble on exit (90% threshold)
 		autoMarked := false
-		if activeItem.Duration > 0 && lastPosMs > 0 {
+		if mpv != nil && activeItem.Duration > 0 && lastPosMs > 0 {
 			progress := float64(lastPosMs) / float64(activeItem.Duration.Milliseconds())
 			if progress >= 0.90 {
 				s.logger.Info("auto-marking watched", "item", activeItem.Title, "progress", progress)
@@ -332,7 +334,7 @@ func (s *Scrobbler) Monitor(ctx context.Context, cmd *exec.Cmd, ipcSocket string
 					// Find current index and mark all previous
 					for i, it := range items {
 						if it.ID == activeItem.ID {
-							s.markPreviousWatched(items, i, markedIDs, &mu)
+							s.markPreviousWatched(items, i, markedIDs, &mu, &wg)
 							break
 						}
 					}
@@ -340,13 +342,15 @@ func (s *Scrobbler) Monitor(ctx context.Context, cmd *exec.Cmd, ipcSocket string
 			}
 		}
 
+		wg.Wait()
 		resCh <- ScrobbleResult{
-			Item:       activeItem,
-			ItemID:     activeItem.ID,
-			Title:      activeItem.Title,
-			FinalPosMs: lastPosMs,
-			Duration:   activeItem.Duration,
-			AutoMarked: autoMarked,
+			Item:          activeItem,
+			ItemID:        activeItem.ID,
+			Title:         activeItem.Title,
+			FinalPosMs:    lastPosMs,
+			PositionKnown: mpv != nil,
+			Duration:      activeItem.Duration,
+			AutoMarked:    autoMarked,
 		}
 	}()
 
@@ -369,10 +373,17 @@ func (s *Scrobbler) reportTimeline(item domain.MediaItem, state string, timeMs i
 	}
 }
 
-func (s *Scrobbler) markPreviousWatched(items []domain.MediaItem, currentIdx int, markedIDs map[string]bool, mu *sync.Mutex) {
+func (s *Scrobbler) markPreviousWatched(items []domain.MediaItem, currentIdx int, markedIDs map[string]bool, mu *sync.Mutex, wg *sync.WaitGroup) {
 	// Mark items sequentially in a single background goroutine to avoid flooding the server
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
 		for i := 0; i < currentIdx; i++ {
+			if ctx.Err() != nil {
+				return
+			}
 			item := items[i]
 			mu.Lock()
 			if item.IsPlayed || markedIDs[item.ID] {
@@ -385,8 +396,6 @@ func (s *Scrobbler) markPreviousWatched(items []domain.MediaItem, currentIdx int
 			s.logger.Info("bulk-marking previous item watched", "item", item.Title)
 
 			func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				defer cancel()
 				if err := s.client.MarkPlayed(ctx, item.ID); err != nil {
 					s.logger.Warn("failed to mark previous item watched", "item", item.Title, "error", err)
 				}

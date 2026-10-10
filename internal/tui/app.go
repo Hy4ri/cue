@@ -648,6 +648,7 @@ func (m Model) Update(msg tea.Msg) (model tea.Model, command tea.Cmd) {
 		return m, ListenForPlaybackStatusCmd(msg.StatusCh)
 
 	case PlaybackFinishedMsg:
+		m.applyPlaybackResult(msg)
 		if msg.Err != nil {
 			m.StatusMsg = "Playback error: " + msg.Err.Error()
 			m.StatusIsErr = true
@@ -670,12 +671,14 @@ func (m Model) Update(msg tea.Msg) (model tea.Model, command tea.Cmd) {
 	case MarkWatchedMsg:
 		m.StatusMsg = "Marked watched: " + msg.Title
 		m.applyWatchState(msg.ItemID, true)
+		cmds = append(cmds, m.updateInspector())
 		cmds = append(cmds, ClearStatusCmd(3*time.Second))
 		return m, tea.Batch(cmds...)
 
 	case MarkUnwatchedMsg:
 		m.StatusMsg = "Marked unwatched: " + msg.Title
 		m.applyWatchState(msg.ItemID, false)
+		cmds = append(cmds, m.updateInspector())
 		cmds = append(cmds, ClearStatusCmd(3*time.Second))
 		return m, tea.Batch(cmds...)
 
@@ -992,7 +995,32 @@ func (m *Model) applyWatchState(itemID string, played bool) {
 		}
 	}
 
-	m.updateInspector()
+}
+
+// Playback completion updates local snapshots before refreshing projections.
+func (m *Model) applyPlaybackResult(result PlaybackFinishedMsg) {
+	if result.Item.ID == "" || m.LibraryService == nil {
+		return
+	}
+	if result.AutoMarked {
+		m.applyWatchState(result.Item.ID, true)
+	}
+	if !result.PositionKnown {
+		return
+	}
+	offset := time.Duration(result.FinalPosMs) * time.Millisecond
+	if result.AutoMarked {
+		offset = 0
+	}
+	lastPlayedAt := time.Now().Unix()
+	m.LibraryService.SetPlaybackProgress(result.Item.ID, offset, lastPlayedAt)
+	for i := 0; i < m.ColumnStack.Len(); i++ {
+		for _, entry := range m.ColumnStack.Get(i).Items() {
+			if item, ok := entry.(*domain.MediaItem); ok && item.ID == result.Item.ID {
+				item.ViewOffset, item.LastPlayedAt = offset, lastPlayedAt
+			}
+		}
+	}
 }
 
 // refreshCurrentView refreshes the current view

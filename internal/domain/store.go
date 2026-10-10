@@ -1,5 +1,7 @@
 package domain
 
+import "time"
+
 // Store handles local cache (BoltDB + memory).
 // TUI reads directly from Store for cache access.
 type Store interface {
@@ -44,6 +46,7 @@ type Store interface {
 	// cached (and adjusts season/show unwatched counters) without
 	// invalidating anything.
 	SetWatchState(itemID string, played bool)
+	SetPlaybackProgress(itemID string, offset time.Duration, lastPlayedAt int64)
 
 	// === Invalidation ===
 	InvalidateLibrary(libID string)

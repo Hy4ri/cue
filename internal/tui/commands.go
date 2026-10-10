@@ -182,10 +182,12 @@ func WaitForPlaybackCmd(resultCh <-chan player.ScrobbleResult) tea.Cmd {
 			return nil
 		}
 		return PlaybackFinishedMsg{
-			Item:       result.Item,
-			Title:      result.Title,
-			AutoMarked: result.AutoMarked,
-			Err:        result.Err,
+			Item:          result.Item,
+			Title:         result.Title,
+			AutoMarked:    result.AutoMarked,
+			FinalPosMs:    result.FinalPosMs,
+			PositionKnown: result.PositionKnown,
+			Err:           result.Err,
 		}
 	}
 }

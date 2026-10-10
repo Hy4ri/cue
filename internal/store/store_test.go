@@ -52,6 +52,31 @@ func TestInvalidateAllPreservesLocalQueue(t *testing.T) {
 	}
 }
 
+func TestPlaybackProgressUpdatesEveryCachedCopy(t *testing.T) {
+	st, err := NewLibraryStore(t.TempDir(), "server", "user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	item := &domain.MediaItem{ID: "item", Type: domain.MediaTypeEpisode}
+	st.SaveMovies("lib", []*domain.MediaItem{item}, 1)
+	st.SaveMixedContent("mixed", []domain.ListItem{item}, 1)
+	st.SaveEpisodes("lib", "show", "season", []*domain.MediaItem{item})
+	st.SavePlaylistItems("playlist", []*domain.MediaItem{item})
+	st.SaveQueueItems([]*domain.MediaItem{item})
+	st.SetPlaybackProgress(item.ID, 45*time.Second, 1234)
+	movies, _ := st.GetMovies("lib")
+	mixed, _ := st.GetMixedContent("mixed")
+	episodes, _ := st.GetEpisodes("lib", "show", "season")
+	playlist, _ := st.GetPlaylistItems("playlist")
+	queue, _ := st.GetQueueItems()
+	for _, copy := range []*domain.MediaItem{movies[0], mixed[0].(*domain.MediaItem), episodes[0], playlist[0], queue[0]} {
+		if copy.ViewOffset != 45*time.Second || copy.LastPlayedAt != 1234 {
+			t.Fatalf("stale playback copy: %#v", copy)
+		}
+	}
+}
+
 func TestLibraryStorePersistsAndInvalidatesContent(t *testing.T) {
 	base := t.TempDir()
 	st, err := NewLibraryStore(base, "http://server", "user")

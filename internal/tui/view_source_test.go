@@ -77,3 +77,41 @@ func TestPlaylistPlaybackRefreshKeepsPlaylistView(t *testing.T) {
 		t.Fatal("playlist view replaced during refresh")
 	}
 }
+
+func TestPlaybackCompletionUpdatesLocalProjectionBeforeRefresh(t *testing.T) {
+	for _, id := range []string{queueLibraryID, filterInProgressID} {
+		for _, watched := range []bool{false, true} {
+			t.Run(id+"/"+map[bool]string{false: "partial", true: "watched"}[watched], func(t *testing.T) {
+				st, _ := store.NewLibraryStore("", "", "")
+				item := &domain.MediaItem{ID: "movie", Type: domain.MediaTypeMovie, Duration: time.Minute}
+				st.SaveLibraries([]domain.Library{{ID: "lib", Type: "movie"}})
+				st.SaveMovies("lib", []*domain.MediaItem{item}, 1)
+				st.SaveQueueItems([]*domain.MediaItem{item})
+				m := newVirtualTestModel(st)
+				m.Inspector = components.NewInspector()
+				m.ColumnStack.Reset(components.NewLibraryColumn(m.allLibraryEntries()))
+				col := components.NewListColumn(components.ColumnTypeMixed, "View")
+				col.SetContentID(id)
+				col.SetItems([]*domain.MediaItem{item})
+				m.ColumnStack.Push(col, 0)
+				updated, _ := m.Update(PlaybackFinishedMsg{Item: *item, FinalPosMs: 30000, PositionKnown: true, AutoMarked: watched})
+				m = updated.(Model)
+				wantCount := 1
+				if watched && id == filterInProgressID {
+					wantCount = 0
+				}
+				if col.ItemCount() != wantCount || m.Loading {
+					t.Fatalf("projection did not reflect playback: count=%d", col.ItemCount())
+				}
+				queue, _ := st.GetQueueItems()
+				wantOffset := 30 * time.Second
+				if watched {
+					wantOffset = 0
+				}
+				if queue[0].ViewOffset != wantOffset || queue[0].IsPlayed != watched || queue[0].LastPlayedAt == 0 {
+					t.Fatalf("stale queue snapshot: %#v", queue[0])
+				}
+			})
+		}
+	}
+}
