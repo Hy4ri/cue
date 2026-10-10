@@ -717,16 +717,21 @@ func (s *LibraryStore) InvalidateSeason(libID, showID, seasonID string) {
 func (s *LibraryStore) InvalidateAll() {
 	s.mu.Lock()
 	s.gen++
-	s.cache = make(map[string][]byte)
+	// The queue is local user data, not a reconstructable server cache.
+	for key := range s.cache {
+		if !strings.HasPrefix(key, string(bucketQueue)+":") {
+			delete(s.cache, key)
+		}
+	}
 	s.mu.Unlock()
 
 	if s.db == nil {
 		return
 	}
 
-	// Delete all data from all buckets
+	// Delete server cache data; explicit queue actions own queue deletion.
 	_ = s.db.Update(func(tx *bolt.Tx) error {
-		for _, bucket := range [][]byte{bucketLibraries, bucketContent, bucketSeasons, bucketEpisodes, bucketPlaylists, bucketQueue} {
+		for _, bucket := range [][]byte{bucketLibraries, bucketContent, bucketSeasons, bucketEpisodes, bucketPlaylists} {
 			b := tx.Bucket(bucket)
 			if b == nil {
 				continue

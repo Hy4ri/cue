@@ -8,6 +8,50 @@ import (
 	"github.com/SuperCoolPencil/cue/internal/domain"
 )
 
+func TestInvalidateAllPreservesLocalQueue(t *testing.T) {
+	for _, persistent := range []bool{false, true} {
+		name, base := "memory", ""
+		if persistent {
+			name, base = "disk", t.TempDir()
+		}
+		t.Run(name, func(t *testing.T) {
+			st, err := NewLibraryStore(base, "server", "user")
+			if err != nil {
+				t.Fatal(err)
+			}
+			queue := []*domain.MediaItem{{ID: "queued-movie"}}
+			if err := st.SaveQueueItems(queue); err != nil {
+				t.Fatal(err)
+			}
+			if err := st.SaveMovies("movies", queue, 1); err != nil {
+				t.Fatal(err)
+			}
+			st.InvalidateAll()
+			if _, ok := st.GetMovies("movies"); ok {
+				t.Fatal("server content survived invalidation")
+			}
+			if persistent {
+				if err := st.Close(); err != nil {
+					t.Fatal(err)
+				}
+				st, err = NewLibraryStore(base, "server", "user")
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			defer st.Close()
+			items, ok := st.GetQueueItems()
+			if !ok || len(items) != 1 || items[0].ID != queue[0].ID {
+				t.Fatalf("queue lost: %#v", items)
+			}
+			st.InvalidateQueue()
+			if _, ok := st.GetQueueItems(); ok {
+				t.Fatal("explicit queue clearing failed")
+			}
+		})
+	}
+}
+
 func TestLibraryStorePersistsAndInvalidatesContent(t *testing.T) {
 	base := t.TempDir()
 	st, err := NewLibraryStore(base, "http://server", "user")

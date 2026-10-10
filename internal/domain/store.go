@@ -52,6 +52,7 @@ type Store interface {
 	InvalidatePlaylists()
 	InvalidatePlaylistItems(playlistID string)
 	InvalidateQueue()
+	// InvalidateAll clears server caches while preserving the local queue.
 	InvalidateAll()
 
 	Close() error
