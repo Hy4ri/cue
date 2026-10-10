@@ -49,6 +49,25 @@ func TestResumeConfirmationCancel(t *testing.T) {
 	}
 }
 
+func TestContinueWatchingMovieResumeDoesNotUseUnrelatedEpisodes(t *testing.T) {
+	movie := &domain.MediaItem{ID: "movie", Title: "Horrible Bosses", Type: domain.MediaTypeMovie, ViewOffset: 10 * time.Minute}
+	col := components.NewListColumn(components.ColumnTypeMixed, "Continue Watching")
+	col.SetContentID(continueLibraryID)
+	col.SetItems([]*domain.MediaItem{movie, {ID: "episode", Title: "Shogun", Type: domain.MediaTypeEpisode, EpisodeNum: 2}})
+	col.SetSelectedIndex(0)
+	model := Model{State: StateBrowsing, ColumnStack: NewColumnStack()}
+	model.ColumnStack.Push(col, 0)
+
+	updated, _ := model.handleEnter()
+	got := updated.(Model)
+	if got.State != StateConfirmResume || got.pendingPlayback == nil || got.pendingPlayback.ID != movie.ID {
+		t.Fatalf("expected resume confirmation for movie, got %#v", got.pendingPlayback)
+	}
+	if len(got.pendingPlaylist) != 0 {
+		t.Fatalf("movie inherited unrelated episodes: %#v", got.pendingPlaylist)
+	}
+}
+
 func TestEscapeQuitsAtLibraryRoot(t *testing.T) {
 	model := Model{State: StateBrowsing, ColumnStack: NewColumnStack()}
 	model.ColumnStack.Reset(components.NewLibraryColumn(nil))

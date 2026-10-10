@@ -858,6 +858,9 @@ func (c *ListColumn) rebuildSeasonItems() {
 
 // GetSeasonPlaylist returns all MediaItems in the current season (ignoring filters) and the index of the selected item.
 func (c *ListColumn) GetSeasonPlaylist() (playlist []domain.MediaItem, selectedIdx int) {
+	if c.columnType != ColumnTypeEpisodes && c.columnType != ColumnTypeSeasonEpisodes {
+		return nil, 0
+	}
 	if len(c.items) == 0 {
 		return nil, 0
 	}

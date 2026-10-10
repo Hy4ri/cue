@@ -774,6 +774,18 @@ func (s *Service) playItem(ctx context.Context, offset time.Duration, item domai
 	var allPlaybackItems []domain.MediaItem
 	if len(playlist) > 0 {
 		allPlaybackItems = playlist
+		// The requested item must be present: otherwise a stale or unrelated
+		// playlist would silently launch a different title at index zero.
+		found := false
+		for _, entry := range playlist {
+			if entry.ID == item.ID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			allPlaybackItems = []domain.MediaItem{item}
+		}
 	} else {
 		allPlaybackItems = []domain.MediaItem{item}
 	}
