@@ -69,7 +69,8 @@ func TestPlaylistPlaybackRefreshKeepsPlaylistView(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("no refresh")
 	}
-	if _, ok := cmd().(PlaylistItemsLoadedMsg); !ok || client.requested != "playlist-1" {
+	result := cmd().(viewResultMsg)
+	if _, ok := result.message.(PlaylistItemsLoadedMsg); !ok || client.requested != "playlist-1" {
 		t.Fatalf("wrong playlist refresh: %q", client.requested)
 	}
 	if m.ColumnStack.Top() != col {

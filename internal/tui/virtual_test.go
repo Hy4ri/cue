@@ -62,7 +62,8 @@ func TestContinueWatchingRefreshUsesServerContinueEndpoint(t *testing.T) {
 				}
 				msg = batch[0]()
 			}
-			if _, ok := msg.(ContinueWatchingLoadedMsg); !ok || client.calls != 1 {
+			result, owned := msg.(viewResultMsg)
+			if _, ok := result.message.(ContinueWatchingLoadedMsg); !owned || !ok || client.calls != 1 {
 				t.Fatalf("wrong refresh endpoint: message %T, calls %d", msg, client.calls)
 			}
 			updated, _ := m.Update(msg)

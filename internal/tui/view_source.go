@@ -83,7 +83,7 @@ func (m *Model) reloadView(col *components.ListColumn) tea.Cmd {
 	var cmd tea.Cmd
 	switch source.kind {
 	case viewContinue:
-		cmd = LoadContinueWatchingCmd(m.LibraryService)
+		cmd = m.loadContinueWatching()
 	case viewRecent:
 		col.ReplaceItems(m.LibraryService.RecentlyAdded(0))
 	case viewQueue:
@@ -94,24 +94,24 @@ func (m *Model) reloadView(col *components.ListColumn) tea.Cmd {
 		m.LibraryService.InvalidateLibrary(source.library.ID)
 		switch source.library.Type {
 		case "movie":
-			cmd = LoadMoviesCmd(m.LibraryService, *source.library)
+			cmd = m.loadMovies(*source.library)
 		case "show":
-			cmd = LoadShowsCmd(m.LibraryService, *source.library)
+			cmd = m.loadShows(*source.library)
 		default:
-			cmd = LoadMixedLibraryCmd(m.LibraryService, *source.library)
+			cmd = m.loadMixed(*source.library)
 		}
 	case viewSeasons:
 		m.LibraryService.InvalidateShow(source.libID, source.showID)
-		cmd = LoadSeasonsCmd(m.LibraryService, source.libID, source.showID)
+		cmd = m.loadSeasons(source.libID, source.showID)
 	case viewEpisodes:
 		m.LibraryService.InvalidateSeason(source.libID, source.showID, source.id)
-		cmd = LoadEpisodesCmd(m.LibraryService, source.libID, source.showID, source.id)
+		cmd = m.loadEpisodes(source.libID, source.showID, source.id)
 	case viewPlaylists:
 		m.PlaylistService.InvalidatePlaylists()
-		cmd = LoadPlaylistsCmd(m.PlaylistService)
+		cmd = m.loadPlaylists()
 	case viewPlaylistItems:
 		m.PlaylistService.InvalidatePlaylistItems(source.id)
-		cmd = LoadPlaylistItemsCmd(m.PlaylistService, source.id)
+		cmd = m.loadPlaylistItems(source.id)
 	default:
 		return nil
 	}

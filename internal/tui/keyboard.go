@@ -347,7 +347,8 @@ func (m Model) handleEnter() (tea.Model, tea.Cmd) {
 			needsLoad, seasonID := top.ToggleSelectedSeason()
 			if needsLoad {
 				m.Loading = true
-				return m, LoadEpisodesCmd(m.LibraryService, m.currentLibID, m.currentShowID, seasonID)
+				cmd := m.loadEpisodes(m.currentLibID, m.currentShowID, seasonID)
+				return m, cmd
 			}
 			pc := m.updateInspector()
 			return m, pc
@@ -441,12 +442,14 @@ func (m Model) refreshLibraryContent(top *components.ListColumn) (Model, tea.Cmd
 // in place and reloads the visible view, only resetting when the library the
 // user is inside no longer exists.
 func (m Model) handleRefreshAll() (tea.Model, tea.Cmd) {
+	m.cancelViewRequests()
 	m.Loading = true
 	m.invalidatePoster()
 
 	m.LibraryService.InvalidateAll()
 	m.PlaylistService.InvalidatePlaylists()
-	return m, RefreshLibrariesCmd(m.LibraryService)
+	cmd := m.loadLibraries(true)
+	return m, cmd
 }
 
 // handleMarkWatched marks the selected item as watched
@@ -493,7 +496,8 @@ func (m Model) handlePlay() (tea.Model, tea.Cmd) {
 func (m Model) playItemWithContext(top *components.ListColumn, item *domain.MediaItem, resume bool) (tea.Model, tea.Cmd) {
 	if item.Type == domain.MediaTypeEpisode && (top.ColumnType() == components.ColumnTypeMixed || top.ContentID() == continueLibraryID) {
 		m.Loading = true
-		return m, LoadSeasonForPlaybackCmd(m.LibraryService, item, resume)
+		cmd := m.requestView(top, "playback", LoadSeasonForPlaybackCmd(m.LibraryService, item, resume))
+		return m, cmd
 	}
 
 	playlist, _ := top.GetSeasonPlaylist()
@@ -580,7 +584,8 @@ func (m Model) handlePlaylistModal() (tea.Model, tea.Cmd) {
 	}
 	item := top.SelectedMediaItem()
 	if item != nil && m.PlaylistService != nil {
-		return m, LoadPlaylistModalDataCmd(m.PlaylistService, item)
+		cmd := m.requestView(top, "modal", LoadPlaylistModalDataCmd(m.PlaylistService, item))
+		return m, cmd
 	}
 	return m, nil
 }
@@ -636,7 +641,8 @@ func (m Model) handleRemove() (tea.Model, tea.Cmd) {
 
 func (m Model) playNextEpisodeForShow(show domain.ListItem) (tea.Model, tea.Cmd) {
 	m.StatusMsg = "Finding next episode for " + show.GetTitle() + "..."
-	return m, DirectPlayShowCmd(m.MediaClient, m.PlaybackSvc, show.GetID(), show.GetLibraryID(), m.UIConfig.Autoplay)
+	cmd := m.requestView(m.ColumnStack.Top(), "playback", LoadNextEpisodeForShowCmd(m.MediaClient, show.GetID(), show.GetLibraryID()))
+	return m, cmd
 }
 
 // handleNewPlaylist shows hint about creating playlists

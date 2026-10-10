@@ -491,10 +491,11 @@ func DeleteMediaItemCmd(svc mediaserver.MediaSource, itemID, libID string) tea.C
 	}
 }
 
-// DirectPlayShowCmd finds the first unplayed episode after the latest played
-// episode and starts it. Episodes left unplayed before the latest played one
+// LoadNextEpisodeForShowCmd finds the first unplayed episode after the latest
+// played episode. The UI validates the request before starting playback.
+// Episodes left unplayed before the latest played one
 // are intentionally skipped, so users can permanently skip episodes.
-func DirectPlayShowCmd(svc mediaserver.MediaSource, playerSvc *player.Service, showID, libraryID string, autoplay bool) tea.Cmd {
+func LoadNextEpisodeForShowCmd(svc mediaserver.MediaSource, showID, libraryID string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -530,10 +531,8 @@ func DirectPlayShowCmd(svc mediaserver.MediaSource, playerSvc *player.Service, s
 			return ErrMsg{Err: domain.ErrItemNotFound, Context: "finding next episode to play"}
 		}
 
-		// Build the full playlist so the player can autoplay subsequent episodes,
-		// matching the behaviour of starting playback from the episode menu.
-		playlist := buildEpisodePlaylist(episodes)
-		return PlayItemCmd(playerSvc, *episode, episode.ShouldResume(), autoplay, playlist...)()
+		// Return data only: a cancelled request must never launch a player.
+		return SeasonForPlaybackLoadedMsg{Item: episode, Episodes: episodes, Resume: true}
 	}
 }
 

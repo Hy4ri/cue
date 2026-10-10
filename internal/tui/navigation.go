@@ -99,7 +99,7 @@ func (m *Model) pushAndLoadColumn(spec columnLoadSpec, cursor int) *drillResult 
 	return &drillResult{
 		AwaitKind: spec.awaitKind,
 		AwaitID:   spec.awaitID,
-		Cmd:       spec.loadCmd,
+		Cmd:       m.requestView(col, "content", spec.loadCmd),
 	}
 }
 
@@ -129,7 +129,7 @@ func (m *Model) navigateToMixedLibraryItem(lib *domain.Library, targets []NavTar
 	m.ColumnStack.Push(mixedCol, 0)
 	m.Loading = true
 	m.updateLayout()
-	return LoadMixedLibraryCmd(m.LibraryService, *lib)
+	return m.loadMixed(*lib)
 }
 
 // NavigationContext contains information needed to navigate to an item
@@ -174,6 +174,7 @@ func (m *Model) buildNavContext(item search.FilterItem) NavigationContext {
 // clearNavPlan clears the current navigation plan
 func (m *Model) clearNavPlan() {
 	m.navPlan = nil
+	m.cancelPlaybackRequests()
 }
 
 // drillSelected pushes a new column for the selected item and returns await info
@@ -212,7 +213,7 @@ func (m *Model) drillSelected() *drillResult {
 			m.Loading = true
 			return &drillResult{
 				AwaitKind: AwaitNone,
-				Cmd:       LoadPlaylistsCmd(m.PlaylistService),
+				Cmd:       m.loadPlaylists(),
 			}
 		}
 
@@ -302,7 +303,7 @@ func (m *Model) drillSelected() *drillResult {
 		return &drillResult{
 			AwaitKind: AwaitSeasons,
 			AwaitID:   showID,
-			Cmd:       LoadSeasonsCmd(m.LibraryService, libID, showID),
+			Cmd:       m.loadSeasons(libID, showID),
 		}
 
 	case *domain.Season:
@@ -351,7 +352,7 @@ func (m *Model) drillSelected() *drillResult {
 		return &drillResult{
 			AwaitKind: AwaitNone, // Playlists don't use the NavPlan system
 			AwaitID:   v.ID,
-			Cmd:       LoadPlaylistItemsCmd(m.PlaylistService, v.ID),
+			Cmd:       m.loadPlaylistItems(v.ID),
 		}
 	}
 	return nil
@@ -377,7 +378,7 @@ func (m *Model) drillVirtualLibrary(v domain.Library, cursor int) *drillResult {
 		m.updateLayout()
 		return &drillResult{
 			AwaitKind: AwaitNone,
-			Cmd:       LoadContinueWatchingCmd(m.LibraryService),
+			Cmd:       m.loadContinueWatching(),
 		}
 	case recentLibraryID:
 		items = m.LibraryService.RecentlyAdded(0)

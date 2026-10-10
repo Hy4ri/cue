@@ -239,7 +239,9 @@ type Model struct {
 	SyncGen       int                                    // Current sync generation; messages from older generations are dropped
 
 	// Navigation plan for deep linking
-	navPlan *NavPlan
+	navPlan           *NavPlan
+	viewRequests      map[viewRequestKey]uint64
+	requestGeneration uint64
 
 	// Playlist navigation context (when viewing playlist items)
 	currentPlaylistID string
@@ -342,8 +344,32 @@ func (m Model) Init() tea.Cmd {
 }
 
 // Update handles all messages
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m Model) Update(msg tea.Msg) (model tea.Model, command tea.Cmd) {
 	var cmds []tea.Cmd
+	var loadTarget *components.ListColumn
+	if m.ColumnStack != nil {
+		loadTarget = m.ColumnStack.Top()
+	}
+	if result, ok := msg.(viewResultMsg); ok {
+		if !m.acceptsViewResult(result) {
+			if m.viewRequests[result.key] == result.generation {
+				delete(m.viewRequests, result.key)
+				m.finishColumnRequest(result.key.owner)
+				m.Loading = m.SyncingCount > 0 || m.hasActiveViewRequests()
+			}
+			return m, nil
+		}
+		delete(m.viewRequests, result.key)
+		loadTarget, msg = result.key.owner, result.message
+		defer func() {
+			if updated, ok := model.(Model); ok {
+				updated.finishColumnRequest(result.key.owner)
+				updated.Loading = updated.SyncingCount > 0 || updated.hasActiveViewRequests()
+				model = updated
+			}
+		}()
+	}
+	validLoadTarget := func(id string) bool { return loadTarget != nil && loadTarget.ContentID() == id }
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -354,9 +380,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.updateInspector()
 
 	case tea.KeyMsg:
+		if m.State == StateBrowsing {
+			m.cancelPlaybackRequests()
+		}
 		return m.handleKeyMsg(msg)
 
 	case tea.MouseMsg:
+		if msg.Action == tea.MouseActionPress || msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
+			m.cancelPlaybackRequests()
+		}
 		return m.handleMouseMsg(msg)
 
 	case introStatusLoadedMsg:
@@ -437,14 +469,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Validate content ID to prevent race condition
-		if !m.validateContentID(msg.LibraryID) {
+		if !validLoadTarget(msg.LibraryID) {
 			return m, nil
 		}
 
 		// Update matching column with movies
 		if col := m.ColumnStack.FindColumn(msg.LibraryID); col != nil {
 			selectedID := m.getSelectedItemID(col)
-			col.SetItems(msg.Movies)
+			col.ReplaceItems(msg.Movies)
 			if selectedID != "" {
 				col.SetSelectedByID(selectedID)
 			}
@@ -470,14 +502,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Validate content ID to prevent race condition
-		if !m.validateContentID(msg.LibraryID) {
+		if !validLoadTarget(msg.LibraryID) {
 			return m, nil
 		}
 
 		// Update matching column with shows
 		if col := m.ColumnStack.FindColumn(msg.LibraryID); col != nil {
 			selectedID := m.getSelectedItemID(col)
-			col.SetItems(msg.Shows)
+			col.ReplaceItems(msg.Shows)
 			if selectedID != "" {
 				col.SetSelectedByID(selectedID)
 			}
@@ -503,14 +535,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Validate content ID to prevent race condition
-		if !m.validateContentID(msg.LibraryID) {
+		if !validLoadTarget(msg.LibraryID) {
 			return m, nil
 		}
 
 		// Update matching column with mixed content
 		if col := m.ColumnStack.FindColumn(msg.LibraryID); col != nil {
 			selectedID := m.getSelectedItemID(col)
-			col.SetItems(msg.Items)
+			col.ReplaceItems(msg.Items)
 			if selectedID != "" {
 				col.SetSelectedByID(selectedID)
 			}
@@ -528,11 +560,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Loading = false
 
 		// Validate content ID to prevent race condition
-		if !m.validateContentID(msg.ShowID) {
+		if !validLoadTarget(msg.ShowID) {
 			return m, nil
 		}
 
-		top := m.ColumnStack.Top()
+		top := loadTarget
 		if top == nil {
 			return m, nil
 		}
@@ -551,14 +583,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Auto-expand first season and kick off its episode load
 			if needsLoad, seasonID := top.ExpandFirstSeason(); needsLoad {
 				m.Loading = true
-				return m, tea.Batch(pc, LoadEpisodesCmd(m.LibraryService, m.currentLibID, m.currentShowID, seasonID))
+				cmd := m.loadEpisodes(m.currentLibID, m.currentShowID, seasonID)
+				return m, tea.Batch(pc, cmd)
 			}
 			return m, pc
 		}
 
 		// Classic path: populate seasons column
 		selectedID := m.getSelectedItemID(top)
-		top.SetItems(msg.Seasons)
+		top.ReplaceItems(msg.Seasons)
 		if selectedID != "" {
 			top.SetSelectedByID(selectedID)
 		}
@@ -573,7 +606,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case EpisodesLoadedMsg:
 		m.Loading = false
 
-		top := m.ColumnStack.Top()
+		top := loadTarget
 		if top == nil {
 			return m, nil
 		}
@@ -586,11 +619,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Classic path: validate and populate a standalone episodes column
-		if !m.validateContentID(msg.SeasonID) {
+		if !validLoadTarget(msg.SeasonID) {
 			return m, nil
 		}
 		selectedID := m.getSelectedItemID(top)
-		top.SetItems(msg.Episodes)
+		top.ReplaceItems(msg.Episodes)
 		if selectedID != "" {
 			top.SetSelectedByID(selectedID)
 		}
@@ -739,8 +772,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case PlaylistsLoadedMsg:
 		m.Loading = false
-		if top := m.ColumnStack.Top(); top != nil {
-			top.SetItems(msg.Playlists)
+		if top := loadTarget; top != nil && top.ColumnType() == components.ColumnTypePlaylists {
+			top.ReplaceItems(msg.Playlists)
 		}
 		pc := m.updateInspector()
 		return m, pc
@@ -749,22 +782,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.Loading = false
 
 		// Validate content ID to prevent race condition
-		if !m.validateContentID(msg.PlaylistID) {
+		if !validLoadTarget(msg.PlaylistID) {
 			return m, nil
 		}
 
-		m.currentPlaylistID = msg.PlaylistID
-		if top := m.ColumnStack.Top(); top != nil {
-			top.SetItems(msg.Items)
+		if loadTarget == m.ColumnStack.Top() {
+			m.currentPlaylistID = msg.PlaylistID
+		}
+		if top := loadTarget; top != nil {
+			top.ReplaceItems(msg.Items)
 		}
 		pc := m.updateInspector()
 		return m, pc
 
 	case ContinueWatchingLoadedMsg:
 		m.Loading = false
-		if top := m.ColumnStack.Top(); top != nil && top.ContentID() == continueLibraryID {
+		if top := loadTarget; top != nil && top.ContentID() == continueLibraryID {
 			selectedID := top.SelectedItemID()
-			top.SetItems(msg.Items)
+			top.ReplaceItems(msg.Items)
 			top.SetRefreshing(false)
 			top.SetSelectedByID(selectedID)
 		}
@@ -842,7 +877,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.StatusMsg = "Playlist updated"
 			// Refresh playlist items if viewing a playlist
 			if m.currentPlaylistID != "" {
-				return m, LoadPlaylistItemsCmd(m.PlaylistService, m.currentPlaylistID)
+				cmd := m.loadPlaylistItems(m.currentPlaylistID)
+				return m, cmd
 			}
 		}
 		cmds = append(cmds, ClearStatusCmd(3*time.Second))
@@ -856,7 +892,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.StatusMsg = fmt.Sprintf("Created playlist: %s", msg.Playlist.Title)
 			// Refresh playlists if viewing playlists
 			if top := m.ColumnStack.Top(); top != nil && top.ColumnType() == components.ColumnTypePlaylists {
-				return m, LoadPlaylistsCmd(m.PlaylistService)
+				cmd := m.loadPlaylists()
+				return m, cmd
 			}
 		}
 		cmds = append(cmds, ClearStatusCmd(3*time.Second))
@@ -871,7 +908,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.StatusMsg = "Playlist deleted"
 			// Clear current playlist ID and refresh the playlists
 			m.currentPlaylistID = ""
-			cmds = append(cmds, LoadPlaylistsCmd(m.PlaylistService))
+			cmds = append(cmds, m.loadPlaylists())
 			cmds = append(cmds, ClearStatusCmd(3*time.Second))
 		}
 		return m, tea.Batch(cmds...)
@@ -965,7 +1002,7 @@ func (m *Model) refreshCurrentView() tea.Cmd {
 		return m.reloadView(top)
 	}
 	m.Loading = true
-	return RefreshLibrariesCmd(m.LibraryService)
+	return m.loadLibraries(true)
 }
 
 // refreshAfterStatusChange handles refreshing the UI after a watch status change.
