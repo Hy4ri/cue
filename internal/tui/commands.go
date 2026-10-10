@@ -1,9 +1,11 @@
 package tui
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/SuperCoolPencil/cue/internal/browser"
@@ -159,23 +161,11 @@ func PlayItemCmd(svc *player.Service, item domain.MediaItem, resume bool, autopl
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 
-		// This command handles two collapsed concerns:
-		// 1. Single-item playback (if autoplay is off) vs full-season playlist.
-		// 2. Play from beginning (Play) vs resume from saved offset (Resume).
-		// The logic below ensures that if autoplay is disabled, we always launch a
-		// single-item playlist, regardless of whether it's a fresh play or a resume.
-		actualPlaylist := playlist
-		if !autoplay && len(playlist) > 0 {
-			actualPlaylist = []domain.MediaItem{item}
+		request, err := player.NewRequest(item, resume, autoplay, playlist...)
+		if err != nil {
+			return ErrMsg{Err: err, Context: "planning playback"}
 		}
-
-		var handle player.PlaybackHandle
-		var err error
-		if resume {
-			handle, err = svc.Resume(ctx, item, actualPlaylist...)
-		} else {
-			handle, err = svc.Play(ctx, item, actualPlaylist...)
-		}
+		handle, err := svc.Start(ctx, request)
 
 		if err != nil {
 			return ErrMsg{Err: err, Context: "starting playback"}
@@ -546,6 +536,12 @@ func buildEpisodePlaylist(episodes []*domain.MediaItem) []domain.MediaItem {
 			playlist = append(playlist, *ep)
 		}
 	}
+	slices.SortStableFunc(playlist, func(a, b domain.MediaItem) int {
+		if order := cmp.Compare(a.SeasonNum, b.SeasonNum); order != 0 {
+			return order
+		}
+		return cmp.Compare(a.EpisodeNum, b.EpisodeNum)
+	})
 	return playlist
 }
 

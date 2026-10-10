@@ -832,10 +832,10 @@ func (m Model) Update(msg tea.Msg) (model tea.Model, command tea.Cmd) {
 
 	case SeasonForPlaybackLoadedMsg:
 		m.Loading = false
-		playlist := make([]domain.MediaItem, len(msg.Episodes))
-		for i, ep := range msg.Episodes {
-			playlist[i] = *ep
+		if msg.Item == nil {
+			return m, nil
 		}
+		playlist := buildEpisodePlaylist(msg.Episodes)
 		if !msg.Resume {
 			return m, PlayItemCmd(m.PlaybackSvc, *msg.Item, false, m.UIConfig.Autoplay, playlist...)
 		}

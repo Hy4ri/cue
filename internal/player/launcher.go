@@ -761,49 +761,49 @@ func NewService(launcher *Launcher, playback domain.PlaybackClient, logger *slog
 
 // Play starts playback of a media item from the beginning
 func (s *Service) Play(ctx context.Context, item domain.MediaItem, playlist ...domain.MediaItem) (PlaybackHandle, error) {
-	return s.playItem(ctx, 0, item, playlist...)
+	request, err := NewRequest(item, false, true, playlist...)
+	if err != nil {
+		return PlaybackHandle{}, err
+	}
+	return s.Start(ctx, request)
 }
 
 // Resume starts playback from the saved position
 func (s *Service) Resume(ctx context.Context, item domain.MediaItem, playlist ...domain.MediaItem) (PlaybackHandle, error) {
-	return s.playItem(ctx, item.ViewOffset, item, playlist...)
+	request, err := NewRequest(item, true, true, playlist...)
+	if err != nil {
+		return PlaybackHandle{}, err
+	}
+	return s.Start(ctx, request)
 }
 
-// playItem resolves URLs and launches player
-func (s *Service) playItem(ctx context.Context, offset time.Duration, item domain.MediaItem, playlist ...domain.MediaItem) (PlaybackHandle, error) {
-	var allPlaybackItems []domain.MediaItem
-	if len(playlist) > 0 {
-		allPlaybackItems = playlist
-		// The requested item must be present: otherwise a stale or unrelated
-		// playlist would silently launch a different title at index zero.
-		found := false
-		for _, entry := range playlist {
-			if entry.ID == item.ID {
-				found = true
-				break
-			}
-		}
-		if !found {
-			allPlaybackItems = []domain.MediaItem{item}
-		}
-	} else {
-		allPlaybackItems = []domain.MediaItem{item}
+// Start validates the request before resolving URLs or launching a player.
+func (s *Service) Start(ctx context.Context, request Request) (PlaybackHandle, error) {
+	if err := request.Validate(); err != nil {
+		return PlaybackHandle{}, err
 	}
+	item, offset := request.Item, request.Offset
+	allPlaybackItems := append([]domain.MediaItem(nil), request.Queue...)
+	allPlaybackItems[request.StartIndex] = item
 
 	playableMedias := make([]domain.PlayableMedia, 0, len(allPlaybackItems))
 	filteredPlaybackItems := make([]domain.MediaItem, 0, len(allPlaybackItems))
 
-	for _, pItem := range allPlaybackItems {
+	actualStartIdx := 0
+	for index, pItem := range allPlaybackItems {
 		media, err := s.playback.ResolvePlayable(ctx, pItem.ID)
 		if err != nil {
 			s.logger.Error("failed to resolve playable URL", "error", err, "itemID", pItem.ID)
-			// If resolving the first item fails, we abort the whole launch.
-			if pItem.ID == item.ID {
+			// Failure to resolve the selected entry aborts the launch.
+			if index == request.StartIndex {
 				return PlaybackHandle{}, err
 			}
 			// Skip this item but keep going with the rest of the playlist.
 			// We MUST skip the corresponding entry in filteredPlaybackItems too.
 			continue
+		}
+		if index == request.StartIndex {
+			actualStartIdx = len(playableMedias)
 		}
 		if media.SourceID != "" {
 			identity := segments.Identity{Server: s.launcher.segmentServer, User: s.launcher.segmentUser, Show: pItem.ShowID, Item: pItem.ID, Source: media.SourceID, Revision: media.Revision, DurationMs: media.DurationMs}
@@ -814,17 +814,6 @@ func (s *Service) playItem(ctx context.Context, offset time.Duration, item domai
 		}
 		playableMedias = append(playableMedias, media)
 		filteredPlaybackItems = append(filteredPlaybackItems, pItem)
-	}
-
-	// Adjust playlistStart if items were skipped before the starting item.
-	// Actually, if 'item' is resolved successfully, playlistStart should be
-	// recalculated based on its new position in filteredPlaybackItems.
-	actualStartIdx := 0
-	for i, pItem := range filteredPlaybackItems {
-		if pItem.ID == item.ID {
-			actualStartIdx = i
-			break
-		}
 	}
 
 	s.logger.Info("launching playback",

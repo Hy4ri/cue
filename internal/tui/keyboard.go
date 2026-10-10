@@ -494,13 +494,25 @@ func (m Model) handlePlay() (tea.Model, tea.Cmd) {
 // playItemWithContext handles playback of an item with appropriate playlist context.
 // If playing an episode from a non-sequential view (like Continue Watching), it fetches the full season.
 func (m Model) playItemWithContext(top *components.ListColumn, item *domain.MediaItem, resume bool) (tea.Model, tea.Cmd) {
-	if item.Type == domain.MediaTypeEpisode && (top.ColumnType() == components.ColumnTypeMixed || top.ContentID() == continueLibraryID) {
-		m.Loading = true
-		cmd := m.requestView(top, "playback", LoadSeasonForPlaybackCmd(m.LibraryService, item, resume))
-		return m, cmd
+	var playlist []domain.MediaItem
+	if m.UIConfig.Autoplay {
+		switch m.sourceFor(top).kind {
+		case viewQueue, viewPlaylistItems:
+			for _, entry := range top.Items() {
+				if media, ok := entry.(*domain.MediaItem); ok {
+					playlist = append(playlist, *media)
+				}
+			}
+		case viewSeasons, viewEpisodes:
+			if item.Type == domain.MediaTypeEpisode {
+				playlist, _ = top.GetSeasonPlaylist()
+			}
+		}
+		if item.Type == domain.MediaTypeEpisode && len(playlist) == 0 {
+			cmd := m.requestView(top, "playback", LoadSeasonForPlaybackCmd(m.LibraryService, item, resume))
+			return m, cmd
+		}
 	}
-
-	playlist, _ := top.GetSeasonPlaylist()
 	if !resume {
 		return m, PlayItemCmd(m.PlaybackSvc, *item, false, m.UIConfig.Autoplay, playlist...)
 	}
@@ -512,8 +524,9 @@ func (m Model) playOrConfirmResume(item *domain.MediaItem, playlist []domain.Med
 		return m, nil
 	}
 	if item.ShouldResume() {
-		m.pendingPlayback = item
-		m.pendingPlaylist = playlist
+		snapshot := *item
+		m.pendingPlayback = &snapshot
+		m.pendingPlaylist = append([]domain.MediaItem(nil), playlist...)
 		m.State = StateConfirmResume
 		m.confirmFocusedIdx = 0
 		return m, nil
