@@ -762,7 +762,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ContinueWatchingLoadedMsg:
 		m.Loading = false
 		if top := m.ColumnStack.Top(); top != nil && top.ContentID() == continueLibraryID {
+			selectedID := top.SelectedItemID()
 			top.SetItems(msg.Items)
+			top.SetRefreshing(false)
+			top.SetSelectedByID(selectedID)
 		}
 		pc := m.updateInspector()
 		return m, pc
@@ -957,6 +960,12 @@ func (m *Model) applyWatchState(itemID string, played bool) {
 // refreshCurrentView refreshes the current view
 func (m *Model) refreshCurrentView() tea.Cmd {
 	m.invalidatePoster()
+	top := m.ColumnStack.Top()
+	if top != nil && top.ContentID() == continueLibraryID {
+		m.Loading = true
+		top.SetRefreshing(true)
+		return LoadContinueWatchingCmd(m.LibraryService)
+	}
 	if m.currentLibID != "" {
 		m.LibraryService.InvalidateLibrary(m.currentLibID)
 	} else {
@@ -964,7 +973,6 @@ func (m *Model) refreshCurrentView() tea.Cmd {
 	}
 	m.Loading = true
 
-	top := m.ColumnStack.Top()
 	if top == nil {
 		return LoadLibrariesCmd(m.LibraryService)
 	}

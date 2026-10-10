@@ -471,6 +471,11 @@ func (m Model) handleRefresh() (tea.Model, tea.Cmd) {
 
 // refreshLibraryContent refreshes movies, shows, or mixed content in the current library
 func (m Model) refreshLibraryContent(top *components.ListColumn) (Model, tea.Cmd) {
+	if top.ContentID() == continueLibraryID {
+		m.Loading = true
+		top.SetRefreshing(true)
+		return m, LoadContinueWatchingCmd(m.LibraryService)
+	}
 	libCol := m.libraryColumn()
 	if libCol == nil {
 		return m, nil
