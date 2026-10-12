@@ -1,7 +1,7 @@
 {
   lib,
-  buildGoModule,
-  installShellFiles,
+  stdenvNoCC,
+  fetchurl,
   makeWrapper,
   mpv,
   ffmpeg-full,
@@ -9,43 +9,41 @@
   xdg-utils,
 }:
 
-buildGoModule {
+let
+  version = "1.3.2";
+  releases = {
+    x86_64-linux = {
+      arch = "x86_64";
+      hash = "sha256-PFS2jlSH/1YUTorxH55idsQEbhC3YmyUfoYHfcpoz3A=";
+    };
+    aarch64-linux = {
+      arch = "arm64";
+      hash = "sha256-judalHfGoEHGYECYD9KBhBtH02u9H8CJjY+K3HHu0FM=";
+    };
+  };
+  release = releases.${stdenvNoCC.hostPlatform.system};
+in
+stdenvNoCC.mkDerivation {
   pname = "cue";
-  version = "unstable";
+  inherit version;
 
-  src = lib.cleanSource ./.;
-  vendorHash = "sha256-VJEbnosZZYYLWy3+Mscd1v0rYWBS71C1lTk3zxeSXsQ=";
+  src = fetchurl {
+    url = "https://github.com/SuperCoolPencil/cue/releases/download/v${version}/cue_${version}_Linux_${release.arch}.tar.gz";
+    inherit (release) hash;
+  };
+  sourceRoot = ".";
 
-  subPackages = [ "." ];
-  env.CGO_ENABLED = "0";
-  ldflags = [
-    "-s"
-    "-w"
-    "-X main.Version=unstable"
-  ];
+  dontConfigure = true;
+  dontBuild = true;
+  # The release binaries are static; keep them unchanged.
+  dontPatchELF = true;
+  dontStrip = true;
+  nativeBuildInputs = [ makeWrapper ];
 
-  nativeBuildInputs = [
-    installShellFiles
-    makeWrapper
-  ];
-  nativeCheckInputs = [
-    mpv
-    ffmpeg-full
-    mkvtoolnix-cli
-  ];
+  installPhase = ''
+    runHook preInstall
 
-  checkPhase = ''
-    runHook preCheck
-    go test ./...
-    runHook postCheck
-  '';
-
-  postInstall = ''
-    installShellCompletion --cmd cue \
-      --bash <($out/bin/cue completion bash) \
-      --zsh <($out/bin/cue completion zsh) \
-      --fish <($out/bin/cue completion fish)
-
+    install -Dm755 cue $out/bin/cue
     wrapProgram $out/bin/cue \
       --suffix PATH : ${
         lib.makeBinPath [
@@ -55,6 +53,15 @@ buildGoModule {
           xdg-utils
         ]
       }
+
+    runHook postInstall
+  '';
+
+  doInstallCheck = true;
+  installCheckPhase = ''
+    runHook preInstallCheck
+    test "$($out/bin/cue --version)" = "cue ${version}"
+    runHook postInstallCheck
   '';
 
   meta = {
@@ -62,6 +69,6 @@ buildGoModule {
     homepage = "https://github.com/SuperCoolPencil/cue";
     license = lib.licenses.mit;
     mainProgram = "cue";
-    platforms = lib.platforms.linux;
+    platforms = builtins.attrNames releases;
   };
 }

@@ -34,10 +34,11 @@ Cue asks for your server URL, detects Plex or Jellyfin, and guides you through a
 
 ### Nix / NixOS
 
-The flake builds Cue from source for `x86_64-linux` and `aarch64-linux`. It includes
-shell completions and makes mpv, FFmpeg with Chromaprint, MKVToolNix CLI, and
-`xdg-open` available to Cue. Tools already on your `PATH` take precedence; you can
-still configure a different player in Cue.
+The flake installs the official Cue 1.3.2 release for `x86_64-linux` and
+`aarch64-linux`, using pinned archive checksums. No Go compiler or source build
+is needed. It makes mpv, FFmpeg with Chromaprint, MKVToolNix CLI, and `xdg-open`
+available to Cue. Tools already on your `PATH` take precedence; you can still
+configure a different player in Cue.
 
 From a checkout:
 
@@ -65,12 +66,9 @@ apply the overlay in your configuration:
 ```
 
 The overlay exposes the media client as `pkgs.cue`, replacing Nixpkgs' package of
-the same name (the unrelated CUE configuration language). Keep the flake's own
-Nixpkgs pin if your system's Nixpkgs does not provide a sufficiently recent Go
-compiler or the runtime dependencies; omit `follows` and install
-`inputs.cue.packages.${pkgs.stdenv.hostPlatform.system}.cue` directly in that case.
+the same name (the unrelated CUE configuration language).
 
-To verify the package, including the Go test suite:
+To verify the flake and the packaged release:
 
 ```bash
 nix flake check

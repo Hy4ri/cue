@@ -30,18 +30,5 @@
           default = pkgs.cue;
         }
       );
-
-      apps = forAllSystems (system: {
-        cue = {
-          type = "app";
-          program = "${self.packages.${system}.cue}/bin/cue";
-          meta.description = self.packages.${system}.cue.meta.description;
-        };
-        default = self.apps.${system}.cue;
-      });
-
-      checks = forAllSystems (system: {
-        cue = self.packages.${system}.cue;
-      });
     };
 }
