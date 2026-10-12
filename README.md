@@ -34,10 +34,16 @@ Cue asks for your server URL, detects Plex or Jellyfin, and guides you through a
 
 ### Nix / NixOS
 
-The flake installs only the official Cue 1.3.2 executable for `x86_64-linux` and
-`aarch64-linux`, using pinned archive checksums. It does not compile from source,
-bundle runtime tools, or wrap the executable. Any player or optional tools you
-want to use must already be available on your system.
+The flake installs only the official Cue executable for `x86_64-linux` and
+`aarch64-linux`, using a pinned release version and archive checksums. It does
+not compile from source, bundle runtime tools, or wrap the executable. Any player
+or optional tools you want to use must already be available on your system.
+
+After the existing Release workflow publishes a release, a follow-up job updates
+`package.nix` to the latest stable release and its GitHub-provided SHA-256 hashes.
+It verifies the package before opening an update PR. GitHub Actions must be
+allowed to create pull requests in the repository. Once that PR is merged,
+update your system flake's `cue` input to pick up the new version.
 
 From a checkout:
 
