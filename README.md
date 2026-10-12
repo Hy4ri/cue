@@ -34,11 +34,10 @@ Cue asks for your server URL, detects Plex or Jellyfin, and guides you through a
 
 ### Nix / NixOS
 
-The flake installs the official Cue 1.3.2 release for `x86_64-linux` and
-`aarch64-linux`, using pinned archive checksums. No Go compiler or source build
-is needed. It makes mpv, FFmpeg with Chromaprint, MKVToolNix CLI, and `xdg-open`
-available to Cue. Tools already on your `PATH` take precedence; you can still
-configure a different player in Cue.
+The flake installs only the official Cue 1.3.2 executable for `x86_64-linux` and
+`aarch64-linux`, using pinned archive checksums. It does not compile from source,
+bundle runtime tools, or wrap the executable. Any player or optional tools you
+want to use must already be available on your system.
 
 From a checkout:
 

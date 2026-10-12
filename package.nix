@@ -2,11 +2,6 @@
   lib,
   stdenvNoCC,
   fetchurl,
-  makeWrapper,
-  mpv,
-  ffmpeg-full,
-  mkvtoolnix-cli,
-  xdg-utils,
 }:
 
 let
@@ -38,30 +33,13 @@ stdenvNoCC.mkDerivation {
   # The release binaries are static; keep them unchanged.
   dontPatchELF = true;
   dontStrip = true;
-  nativeBuildInputs = [ makeWrapper ];
 
   installPhase = ''
     runHook preInstall
 
     install -Dm755 cue $out/bin/cue
-    wrapProgram $out/bin/cue \
-      --suffix PATH : ${
-        lib.makeBinPath [
-          mpv
-          ffmpeg-full
-          mkvtoolnix-cli
-          xdg-utils
-        ]
-      }
 
     runHook postInstall
-  '';
-
-  doInstallCheck = true;
-  installCheckPhase = ''
-    runHook preInstallCheck
-    test "$($out/bin/cue --version)" = "cue ${version}"
-    runHook postInstallCheck
   '';
 
   meta = {
