@@ -5,6 +5,8 @@
 # Build artifacts
 combine-go.sh
 combined.go.txt
+/result
+/result-*
 
 # Screenshots
 *.jpg

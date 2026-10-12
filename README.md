@@ -32,6 +32,52 @@ cue
 
 Cue asks for your server URL, detects Plex or Jellyfin, and guides you through authentication.
 
+### Nix / NixOS
+
+The flake builds Cue from source for `x86_64-linux` and `aarch64-linux`. It includes
+shell completions and makes mpv, FFmpeg with Chromaprint, MKVToolNix CLI, and
+`xdg-open` available to Cue. Tools already on your `PATH` take precedence; you can
+still configure a different player in Cue.
+
+From a checkout:
+
+```bash
+nix run . -- --version
+nix profile add .#cue
+```
+
+To install it declaratively on NixOS, add Cue as an input to your system flake:
+
+```nix
+inputs.cue.url = "github:SuperCoolPencil/cue";
+inputs.cue.inputs.nixpkgs.follows = "nixpkgs";
+```
+
+Pass `inputs` to your NixOS modules with `specialArgs = { inherit inputs; };`, then
+apply the overlay in your configuration:
+
+```nix
+{ inputs, pkgs, ... }:
+{
+  nixpkgs.overlays = [ inputs.cue.overlays.default ];
+  environment.systemPackages = with pkgs; [ cue ];
+}
+```
+
+The overlay exposes the media client as `pkgs.cue`, replacing Nixpkgs' package of
+the same name (the unrelated CUE configuration language). Keep the flake's own
+Nixpkgs pin if your system's Nixpkgs does not provide a sufficiently recent Go
+compiler or the runtime dependencies; omit `follows` and install
+`inputs.cue.packages.${pkgs.stdenv.hostPlatform.system}.cue` directly in that case.
+
+To verify the package, including the Go test suite:
+
+```bash
+nix flake check
+nix build .#cue
+./result/bin/cue --version
+```
+
 ## Usage
 
 ### Switch Plex Servers
